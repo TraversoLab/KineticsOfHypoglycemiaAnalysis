@@ -1,9 +1,7 @@
 Kinetics of Hypoglycemia
 ==============================
 
-Insulin therapy revolutionized the care of patients with diabetes starting ~100 years ago. Insulin-induced hypoglycemia remains the most life-threatening complication of insulin therapy. To inform our understanding as well the development of solutions of this recognized complication we analyzed continuous glucose monitor (CGM) data from 1135 patients with type 1 diabetes (T1D) representing 246.18 patient years. Specifically, through this analysis we define the kinetics of mild and severe hypoglycemic onset and resolution during the day and night.  Day time mild and severe hypoglycemia was observed after 61 to 74 minutes following initial blood glucose decline and lasted for an average duration between 35 to 74 minutes.  Onset of nocturnal mild and severe hypoglycemia was observed on average between 67 and 79 minutes following initial blood glucose decline and lasted for an average duration between 50 and 108 minutes, respectively.  Severe hypoglycemia during the day and at night was observed between 16 to 25 minutes following the onset of mild hypoglycemia, respectively.  These durations represent the windows of opportunity to prevent onset of hypoglycemia and the time it currently takes for patients to treat these events.
-
-This git repo provides the code used to generate this analysis.
+This git repo provides the code used to generate this analysis on the kinetics of hypoglycemia.
 
 Project Organization
 ------------
