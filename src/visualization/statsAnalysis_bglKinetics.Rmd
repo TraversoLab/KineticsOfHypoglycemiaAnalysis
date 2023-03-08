@@ -1,0 +1,848 @@
+---
+title: "bgl_kinetics_anova"
+output: html_document
+date: '2022-10-11'
+author: 'boglin'
+---
+
+```{r}
+library(lme4)
+# library(readr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(lubridate)
+library(scales)
+library(dplyr)
+library(corrplot)
+library(sandwich)
+library(msm)
+oldw <- getOption("warn")
+options(warn = -1)
+library(lmtest)
+```
+```{r Demographics data}
+buck_demo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/raw/buckingham/Buckingham_Demographics.csv")
+aleppo_demo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/raw/aleppo/aleppo_demographics.csv")
+chase_demo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/raw/chase/chase_demographics.csv")
+weinstock_demo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/raw/weinstock/weinstock_demographics.csv")
+weinstock_demo <- weinstock_demo %>%
+  mutate(Age = "60+")
+tamb_demo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/raw/tamborlane/tamborlane_demographics.csv")
+```
+
+```{r import data and generate datasets for use - chase}
+chase_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_chase.csv")
+chase_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_chase.csv")
+chase_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_chase.csv")
+chase_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_chase.csv")
+```
+
+```{r import data and generate datasets for use - buckingham}
+buck_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_buckingham.csv")
+buck_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_buckingham.csv")
+buck_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_buckingham.csv")
+buck_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_buckingham.csv")
+
+buck_severe_only_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_only_buckingham.csv")
+buck_severe_only_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_only_buckingham.csv")
+```
+
+```{r import data and generate datasets for use - tamborlane}
+tamb_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_tamborlane.csv")
+tamb_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_tamborlane.csv")
+tamb_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_tamborlane.csv")
+tamb_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_tamborlane.csv")
+
+tamb_severe_only_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_only_tamborlane.csv")
+tamb_severe_only_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_only_tamborlane.csv")
+```
+
+```{r import data and generate datasets for use - weinstock}
+wein_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_weinstock.csv")
+wein_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_weinstock.csv")
+wein_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_weinstock.csv")
+wein_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_weinstock.csv")
+
+wein_severe_only_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_only_weinstock.csv")
+wein_severe_only_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_only_weinstock.csv")
+```
+
+```{r import data and generate datasets for use - general pop}
+genpop_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_genpop.csv")
+genpop_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_genpop.csv")
+genpop_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_genpop.csv")
+genpop_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_genpop.csv")
+
+genpop_severe_only_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_only_genpop.csv")
+genpop_severe_only_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_only_genpop.csv")
+genpop_severe_treatment_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_treatment_genpop.csv")
+genpop_severe_treatment_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_treatment_genpop.csv")
+```
+
+```{r import data and generate datasets for use - well-controlled}
+aleppo_mild_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_mild_aleppo.csv")
+aleppo_mild_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_mild_aleppo.csv")
+aleppo_severe_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_aleppo.csv")
+aleppo_severe_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_aleppo.csv") 
+
+aleppo_severe_only_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_only_aleppo.csv")
+aleppo_severe_only_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_only_aleppo.csv")
+aleppo_severe_treatment_day = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_day_severe_treatment_aleppo.csv")
+aleppo_severe_treatment_night = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations_night_severe_treatment_aleppo.csv")
+```
+
+```{r data manipulation into correct datasets for analysis}
+# datasets needed: average / median duration (sum), average / median pre-hypo duration (first), average / median duration to first glucagon treatment (severe), average / median duration to last glucagon treatment (severe), avg / median duration before first severe hypo event, avg / median pre-hypo to first severe event, rate of first hypo onset, average / median minimum bgl
+
+# for ALL mild numbers, i need to add mild + severe
+
+dropColumns_mild <- c("start_time_hypo", "start_time_hypo_gl", "start_time_pre_hypo", "start_time_pre_hypo_gl", "last_full_rise", "last_full_rise_gl", "end_hypo_time", "end_hypo_time_gl", "start_time_severe", "start_time_severe_gl", "initial_rise_0", "initial_rise_gl_0", "initial_rise_1", "initial_rise_gl_1", "initial_rise_2", "initial_rise_gl_2", "treatment_20_0", "treatment_20_gl_0", "treatment_20_1", "treatment_20_gl_1", "severe_time", "pre_hypo_time", "hypo_time", "parent_events", "initial_subevents", "followon_subevents", "duration_hypo_mild_only", "duration_prehypo_mild_only", "duration_prehypo_to_hypo_mild_only", "avg_minBGL_mild_only", "avg_rate_mild_only", "X", "global_min_time")
+
+dropColumns_severe <- c("start_time_hypo", "start_time_hypo_gl", "start_time_pre_hypo", "start_time_pre_hypo_gl", "last_full_rise", "last_full_rise_gl", "end_hypo_time", "end_hypo_time_gl", "start_time_severe", "start_time_severe_gl", "initial_rise_0", "initial_rise_gl_0", "initial_rise_1", "initial_rise_gl_1", "treatment_20_0", "treatment_20_gl_0", "treatment_20_1", "treatment_20_gl_1", "severe_time", "pre_hypo_time", "hypo_time", "parent_events", "initial_subevents", "followon_subevents", "X", "global_min_time")
+
+cols <- c("id", "minBGL", "new_count", "event_id", "tod", "duration_prehypo_to_hypo", "duration_hypo", "rate_onset_into_hypo", "Population", "timeOfDay", "severity", "tod_severity")
+cols_severe <- c("id", "minBGL", "new_count", "event_id", "tod", "duration_prehypo_to_hypo", "duration_hypo", "duration_treatment_short", "duration_mild_to_severe", "duration_pre_hypo_to_severe", "rate_onset_into_hypo", "Population", "timeOfDay", "severity", "tod_severity")
+```
+
+Data Manipulation Gen Pop / Well-Cont / All
+```{r}
+mild_day_gp <- genpop_mild_day[,!(names(genpop_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "General Population") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+mild_day_gp_first <- mild_day_gp[mild_day_gp$new_count == 0, ]
+mild_day_gp_first_basic <- mild_day_gp_first[cols]
+mild_day_gp_all <- mild_day_gp[cols]
+
+mild_day_wc <- aleppo_mild_day[,!(names(aleppo_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Well-Controlled T1D") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+
+mild_day_wc_first <- mild_day_wc[mild_day_wc$new_count == 0, ]
+mild_day_wc_first_basic <- mild_day_wc_first[cols]
+mild_day_wc_all <- mild_day_wc[cols]
+
+# grouping daytime mild
+mild_day_first_gp_v_wc <- rbind(mild_day_gp_first, mild_day_wc_first)
+mild_day_gp_v_wc <- rbind(mild_day_gp_all, mild_day_wc_all)
+
+mild_night_gp <- genpop_mild_night[,!(names(genpop_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "General Population") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_gp_first <- mild_night_gp[mild_night_gp$new_count == 0, ]
+mild_night_gp_first_basic <- mild_night_gp_first[cols]
+mild_night_gp_all <- mild_night_gp[cols]
+
+mild_night_wc <- aleppo_mild_night[,!(names(aleppo_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Well-Controlled T1D") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_wc_first <- mild_night_wc[mild_night_wc$new_count == 0, ]
+mild_night_wc_first_basic <- mild_night_wc_first[cols]
+mild_night_wc_all <- mild_night_wc[cols]
+
+# grouping nigttime mild
+mild_night_first_gp_v_wc <- rbind(mild_night_gp_first, mild_night_wc_first) # has nan values
+mild_night_gp_v_wc <- rbind(mild_night_gp_all, mild_night_wc_all) # has nan values
+
+severe_day_gp <- genpop_severe_day[,!(names(genpop_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "General Population") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe") %>%
+  filter(!row_number() %in% c(22667))
+severe_day_gp_first <- severe_day_gp[severe_day_gp$new_count == 0, ]
+severe_day_gp_first_basic <- severe_day_gp_first[cols]
+severe_day_gp_all <- severe_day_gp[cols]
+severe_day_gp <- severe_day_gp[cols_severe]
+
+severe_day_wc <- aleppo_severe_day[,!(names(aleppo_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Well-Controlled T1D") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe") %>%
+  filter(!row_number() %in% c(11339))
+severe_day_wc_first <- severe_day_wc[severe_day_wc$new_count == 0, ]
+severe_day_wc_first_basic <- severe_day_wc_first[cols]
+severe_day_wc_all <- severe_day_wc[cols]
+severe_day_wc <- severe_day_wc[cols_severe]
+
+# grouping day severe
+severe_day_first_gp_v_wc <- rbind(severe_day_gp_first, severe_day_wc_first)
+severe_day_gp_v_wc <- rbind(severe_day_gp_all, severe_day_wc_all) # has nan values
+
+
+severe_night_gp <- genpop_severe_night[,!(names(genpop_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "General Population") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_gp_first <- severe_night_gp[severe_night_gp$new_count == 0, ]
+severe_night_gp_first_basic <- severe_night_gp_first[cols]
+severe_night_gp_all <- severe_night_gp[cols]
+severe_night_gp <- severe_night_gp[cols_severe]
+
+severe_night_wc <- aleppo_severe_night[,!(names(aleppo_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Well-Controlled T1D") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_wc_first <- severe_night_wc[severe_night_wc$new_count == 0, ]
+severe_night_wc_first_basic <- severe_night_wc_first[cols]
+severe_night_wc_all <- severe_night_wc[cols]
+severe_night_wc <- severe_night_wc[cols_severe]
+
+# grouping nigttime severe
+severe_night_first_gp_v_wc <- rbind(severe_night_gp_first, severe_night_wc_first) # has nan values
+severe_night_gp_v_wc <- rbind(severe_night_gp_all, severe_night_wc_all) # has nan values
+
+# META GROUPINGS
+# first event data
+firstdata_gp <- rbind(mild_day_gp_first_basic, mild_night_gp_first_basic, severe_day_gp_first_basic, severe_night_gp_first_basic)
+firstdata_wc <- rbind(mild_day_wc_first_basic, mild_night_wc_first_basic, severe_day_wc_first_basic, severe_night_wc_first_basic)
+firstdata_gp_v_wc <- rbind(firstdata_gp, firstdata_wc)
+
+firstdata_daymild_v_daysevere <- rbind(mild_day_gp_first_basic, mild_day_wc_first_basic, severe_day_gp_first_basic, severe_day_wc_first_basic)
+firstdata_daymild_v_nightmild <- rbind(mild_day_gp_first_basic, mild_day_wc_first_basic, mild_night_gp_first_basic, mild_night_wc_first_basic)
+firstdata_daymild_v_nightsevere <- rbind(mild_day_gp_first_basic, mild_day_wc_first_basic, severe_night_gp_first_basic, severe_night_wc_first_basic)
+
+firstdata_daysevere_v_nightmild <- rbind(severe_day_gp_first_basic, severe_day_wc_first_basic, mild_night_gp_first_basic, mild_night_wc_first_basic)
+firstdata_daysevere_v_nightsevere <- rbind(severe_day_gp_first_basic, severe_day_wc_first_basic, severe_night_gp_first_basic, severe_night_wc_first_basic)
+
+firstdata_nightmild_v_nightsevere <- rbind(mild_night_gp_first_basic, mild_night_wc_first_basic, severe_night_gp_first_basic, severe_night_wc_first_basic)
+
+# all data
+alldata_gp <- rbind(mild_day_gp_all, mild_night_gp_all, severe_day_gp_all, severe_night_gp_all)
+alldata_wc <- rbind(mild_day_wc_all, mild_night_wc_all, severe_day_wc_all, severe_night_wc_all)
+alldata_gp_v_wc <- rbind(alldata_gp, alldata_wc)
+
+alldata_daymild_v_daysevere <- rbind(mild_day_gp_all, mild_day_wc_all, severe_day_gp_all, severe_day_wc_all)
+alldata_daymild_v_nightmild <- rbind(mild_day_gp_all, mild_day_wc_all, mild_night_gp_all, mild_night_wc_all)
+alldata_daymild_v_nightsevere <- rbind(mild_day_gp_all, mild_day_wc_all, severe_night_gp_all, severe_night_wc_all)
+
+alldata_daysevere_v_nightmild <- rbind(severe_day_gp_all, severe_day_wc_all, mild_night_gp_all, mild_night_wc_all)
+alldata_daysevere_v_nightsevere <- rbind(severe_day_gp_all, severe_day_wc_all, severe_night_gp_all, severe_night_wc_all)
+
+severedata_gp_v_wc <- rbind(severe_day_gp_all, severe_day_wc_all, severe_day_wc_all, severe_night_wc_all)
+
+alldata_nightmild_v_nightsevere <- rbind(mild_night_gp_all, mild_night_wc_all, severe_night_gp_all, severe_night_wc_all)
+
+# severe data first event
+severe_day_first_treat_gp_v_wc <- rbind(severe_day_gp[severe_day_gp$new_count == 0, ], severe_day_wc[severe_day_wc$new_count == 0, ])
+severe_night_first_treat_gp_v_wc <- rbind(severe_night_gp[severe_night_gp$new_count == 0, ], severe_night_wc[severe_night_wc$new_count == 0, ])
+severedata_first_gp_v_wc <- rbind(severe_day_gp[severe_day_gp$new_count == 0, ], severe_night_gp[severe_night_gp$new_count == 0, ], severe_day_wc[severe_day_wc$new_count == 0, ], severe_night_wc[severe_night_wc$new_count == 0, ])
+
+severedata_first_daysevere_v_nightsevere <- rbind(severe_day_first_treat_gp_v_wc, severe_night_first_treat_gp_v_wc)
+
+# severe data last event
+severe_day_notfirst_treat_gp_v_wc <- rbind(severe_day_gp[severe_day_gp$new_count != 0, ], severe_day_wc[severe_day_wc$new_count != 0, ])
+severe_night_notfirst_treat_gp_v_wc <- rbind(severe_night_gp[severe_night_gp$new_count != 0, ], severe_night_wc[severe_night_wc$new_count != 0, ])
+severedata_notfirst_gp_v_wc <- rbind(severe_day_gp[severe_day_gp$new_count != 0, ], severe_night_gp[severe_night_gp$new_count != 0, ], severe_day_wc[severe_day_wc$new_count != 0, ], severe_night_wc[severe_night_wc$new_count != 0, ])
+
+severedata_notfirst_daysevere_v_nightsevere <- rbind(severe_day_notfirst_treat_gp_v_wc, severe_night_notfirst_treat_gp_v_wc)
+```
+
+```{r PLOTTING OF DURATIONS ALL EVENTS}
+alldata_gp_v_wc_plots <- alldata_gp_v_wc %>%
+  group_by(Population, tod_severity) %>%
+  summarise(
+    averagePrehypoDuration = mean(duration_prehypo_to_hypo, na.rm = T),
+    averageDuration = mean(duration_hypo, na.rm = T),
+    stdHypo = sd(duration_hypo, na.rm = T),
+    stdPreHypo = sd(duration_prehypo_to_hypo, na.rm = T)
+  ) %>%
+  ungroup() %>%
+  mutate(minVariancePreHypo = averagePrehypoDuration - stdPreHypo) %>%
+  mutate(maxVariancePreHypo = averagePrehypoDuration + stdPreHypo) %>%
+  mutate(minVarianceHypo = averageDuration - stdHypo) %>%
+  mutate(maxVarianceHypo = averageDuration + stdHypo)
+
+severe_gp_v_wc_plots <- severedata_first_gp_v_wc %>%
+  group_by(Population, tod_severity) %>%
+  summarise(
+    averageTreatment = mean(duration_treatment_short, na.rm = T),
+    stdTreatment = sd(duration_treatment_short, na.rm = T)
+  ) %>%
+  ungroup() %>%
+  mutate(minVarianceT = averageTreatment - stdTreatment) %>%
+  mutate(maxVarianceT = averageTreatment + stdTreatment)
+
+dodge <- position_dodge(width = 0.9)
+
+prehypoDurationPlot <- ggplot(alldata_gp_v_wc, aes(fill=Population, y=(duration_prehypo_to_hypo/3600), x=tod_severity)) +
+  geom_violin(position = dodge, alpha=0.5, color="light blue") +
+  geom_boxplot(width=.1, outlier.colour = NA, position=dodge) +
+  scale_y_continuous(trans="log10") +
+  ggtitle("Duration of Pre-Hypoglycemia against Time of Day and Severity") +
+    coord_flip() + # This switch X and Y axis and allows to get the horizontal version
+    xlab("Time of Day and Severity") +
+    ylab("Duration (Hours) (Log Base 10 Scale)")
+
+prehypoDurationPlot
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/prehypo_durations_tod_severity_violin.pdf",
+#   dpi = 300,
+#   width = 10,
+#   height = 4
+# )
+
+hypoDurationPlot <- ggplot(alldata_gp_v_wc, aes(fill=Population, y=(duration_hypo/3600), x=tod_severity)) +
+  geom_violin(position = dodge, alpha=0.5, color="light blue") +
+  geom_boxplot(width=.1, outlier.colour = NA, position=dodge) +
+  # ylim(0,45000) +
+  scale_y_continuous(trans="log10") +
+  ggtitle("Duration of Hypoglycemia against Time of Day and Severity") +
+    coord_flip() + # This switch X and Y axis and allows to get the horizontal version
+    xlab("Time of Day and Severity") +
+    ylab("Duration (hours) (Log Base 10 Scale)")
+
+hypoDurationPlot
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/hypo_durations_tod_severity_violin.pdf",
+#   dpi = 300,
+#   width = 10,
+#   height = 4
+# )
+
+
+treatDurationPlot <- ggplot(severedata_first_gp_v_wc, aes(fill=Population, y=(duration_treatment_short/3600), x=tod_severity)) +
+  geom_violin(position = dodge, alpha=0.5, color="light blue") +
+  geom_boxplot(width=.1, outlier.colour = NA, position=dodge) +
+  scale_y_continuous(trans="log10") +
+  ggtitle("Duration of Time to Treatment against Time of Day and Severity") +
+    coord_flip() +
+    xlab("Time of Day and Severity") +
+    ylab("Duration (hours) (Log Base 10 Scale)")
+
+treatDurationPlot
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/treatment_durations_tod_severity_violin.pdf",
+#   dpi = 300,
+#   width = 10,
+#   height = 4
+# )
+
+```
+
+GENERAL POPULATION VS. WELL-CONTROLLED
+```{r STAT SIG OF DURATION HYPO FIRST EVENT}
+alldata_gp_v_wc %>% kruskal.test(duration_hypo ~ Population, data = .)
+mild_day_gp_v_wc %>% kruskal.test(duration_hypo ~ Population, data = .)
+severe_day_gp_v_wc %>% kruskal.test(duration_hypo ~ Population, data = .)
+mild_night_gp_v_wc %>% kruskal.test(duration_hypo ~ Population, data = .)
+severe_night_gp_v_wc %>% kruskal.test(duration_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF DURATION PREHYPO TO HYPO FIRST EVENT}
+firstdata_gp_v_wc %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+mild_day_first_gp_v_wc %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+severe_day_first_gp_v_wc %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+mild_night_first_gp_v_wc %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+severe_night_first_gp_v_wc %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF FIRST TREATMENT}
+severedata_first_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severe_day_first_treat_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severe_night_first_treat_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+```
+
+```{r STAT SIG OF LAST TREATMENT}
+# TREATMENT: need to capture the last of each group
+severedata_notfirst_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severe_day_notfirst_treat_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severe_night_notfirst_treat_gp_v_wc %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+```
+
+```{r STAT SIG OF MILD DURATION BEFORE FIRST SEVERE HYPO EVENT}
+severedata_first_gp_v_wc %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severe_day_first_treat_gp_v_wc %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severe_night_first_treat_gp_v_wc %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+```
+
+```{r STAT SIG OF PREHYPO TO FIRST SEVERE HYPO EVENT}
+severedata_first_gp_v_wc %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severe_day_first_treat_gp_v_wc %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severe_night_first_treat_gp_v_wc %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+```
+
+```{r STAT SIG OF RATE ONSET INTO HYPO}
+firstdata_gp_v_wc %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+mild_day_first_gp_v_wc %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+severe_day_first_gp_v_wc %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+mild_night_first_gp_v_wc %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+severe_night_first_gp_v_wc %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF MIN BGL}
+alldata_gp_v_wc %>% kruskal.test(minBGL ~ Population, data = .)
+mild_day_gp_v_wc %>% kruskal.test(minBGL ~ Population, data = .)
+severe_day_gp_v_wc %>% kruskal.test(minBGL ~ Population, data = .)
+mild_night_gp_v_wc %>% kruskal.test(minBGL ~ Population, data = .)
+severe_night_gp_v_wc %>% kruskal.test(minBGL ~ Population, data = .)
+```
+
+TOD_SEVERITY VS THE OTHERS
+```{r STAT SIG OF DURATION HYPO FIRST EVENT}
+alldata_daymild_v_daysevere %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+alldata_daymild_v_nightmild %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+alldata_daymild_v_nightsevere %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+alldata_daysevere_v_nightmild %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+alldata_daysevere_v_nightsevere %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+alldata_nightmild_v_nightsevere %>% kruskal.test(duration_hypo ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF DURATION PREHYPO TO HYPO FIRST EVENT}
+firstdata_daymild_v_daysevere %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+firstdata_daymild_v_nightmild %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+firstdata_daymild_v_nightsevere %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+firstdata_daysevere_v_nightmild %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+firstdata_daysevere_v_nightsevere %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+firstdata_nightmild_v_nightsevere %>% kruskal.test(duration_prehypo_to_hypo ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF FIRST TREATMENT}
+severedata_first_daysevere_v_nightsevere %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF LAST TREATMENT}
+# TREATMENT: need to capture the last of each group
+severedata_notfirst_daysevere_v_nightsevere %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF MILD DURATION BEFORE FIRST SEVERE HYPO EVENT}
+severedata_first_daysevere_v_nightsevere %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF PREHYPO TO FIRST SEVERE HYPO EVENT}
+severedata_first_daysevere_v_nightsevere %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF RATE ONSET INTO HYPO}
+firstdata_daymild_v_daysevere %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+firstdata_daymild_v_nightmild %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+firstdata_daymild_v_nightsevere %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+firstdata_daysevere_v_nightmild %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+firstdata_daysevere_v_nightsevere %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+firstdata_nightmild_v_nightsevere %>% kruskal.test(rate_onset_into_hypo ~ tod_severity, data = .)
+```
+
+```{r STAT SIG OF MIN BGL}
+alldata_daymild_v_daysevere %>% kruskal.test(minBGL ~ tod_severity, data = .)
+alldata_daymild_v_nightmild %>% kruskal.test(minBGL ~ tod_severity, data = .)
+alldata_daymild_v_nightsevere %>% kruskal.test(minBGL ~ tod_severity, data = .)
+alldata_daysevere_v_nightmild %>% kruskal.test(minBGL ~ tod_severity, data = .)
+alldata_daysevere_v_nightsevere %>% kruskal.test(minBGL ~ tod_severity, data = .)
+alldata_nightmild_v_nightsevere %>% kruskal.test(minBGL ~ tod_severity, data = .)
+```
+
+Data Manipulation Individual Datasets
+```{r}
+# CHASE
+mild_day_chase <- chase_mild_day[,!(names(chase_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Chase") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+mild_day_chase_first <- mild_day_chase[mild_day_chase$new_count == 0, ]
+mild_day_chase_first_basic <- mild_day_chase_first[cols]
+mild_day_chase_all <- mild_day_chase[cols]
+
+mild_night_chase <- chase_mild_night[,!(names(chase_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Chase") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_chase_first <- mild_night_chase[mild_night_chase$new_count == 0, ]
+mild_night_chase_first_basic <- mild_night_chase_first[cols]
+mild_night_chase_all <- mild_night_chase[cols]
+
+severe_day_chase <- chase_severe_day[,!(names(chase_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Chase") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe")
+severe_day_chase_first <- severe_day_chase[severe_day_chase$new_count == 0, ]
+severe_day_chase_first_basic <- severe_day_chase_first[cols]
+severe_day_chase_all <- severe_day_chase[cols]
+severe_day_chase <- severe_day_chase[cols_severe]
+
+severe_night_chase <- chase_severe_night[,!(names(chase_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Chase") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_chase_first <- severe_night_chase[severe_night_chase$new_count == 0, ]
+severe_night_chase_first_basic <- severe_night_chase_first[cols]
+severe_night_chase_all <- severe_night_chase[cols]
+severe_night_chase <- severe_night_chase[cols_severe]
+
+# BUCKINGHAM
+mild_day_buck <- buck_mild_day[,!(names(buck_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Buckingham") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+mild_day_buck_first <- mild_day_buck[mild_day_buck$new_count == 0, ]
+mild_day_buck_first_basic <- mild_day_buck_first[cols]
+mild_day_buck_all <- mild_day_buck[cols]
+
+mild_night_buck <- buck_mild_night[,!(names(buck_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Buckingham") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+mild_night_buck_first <- mild_night_buck[mild_night_buck$new_count == 0, ]
+mild_night_buck_first_basic <- mild_night_buck_first[cols]
+mild_night_buck_all <- mild_night_buck[cols]
+
+severe_day_buck <- buck_severe_day[,!(names(buck_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Buckingham") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe")
+severe_day_buck_first <- severe_day_buck[severe_day_buck$new_count == 0, ]
+severe_day_buck_first_basic <- severe_day_buck_first[cols]
+severe_day_buck_all <- severe_day_buck[cols]
+severe_day_buck <- severe_day_buck[cols_severe]
+
+severe_night_buck <- buck_severe_night[,!(names(buck_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Buckingham") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_buck_first <- severe_night_buck[severe_night_buck$new_count == 0, ]
+severe_night_buck_first_basic <- severe_night_buck_first[cols]
+severe_night_buck_all <- severe_night_buck[cols]
+severe_night_buck <- severe_night_buck[cols_severe]
+
+# TAMBORLAME
+mild_day_tamb <- tamb_mild_day[,!(names(tamb_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Tamborlane") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+mild_day_tamb_first <- mild_day_tamb[mild_day_tamb$new_count == 0, ]
+mild_day_tamb_first_basic <- mild_day_tamb_first[cols]
+mild_day_tamb_all <- mild_day_tamb[cols]
+
+mild_night_tamb <- tamb_mild_night[,!(names(tamb_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Tamborlane") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_tamb_first <- mild_night_tamb[mild_night_tamb$new_count == 0, ]
+mild_night_tamb_first_basic <- mild_night_tamb_first[cols]
+mild_night_tamb_all <- mild_night_tamb[cols]
+
+severe_day_tamb <- tamb_severe_day[,!(names(tamb_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Tamborlane") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe")
+severe_day_tamb_first <- severe_day_tamb[severe_day_tamb$new_count == 0, ]
+severe_day_tamb_first_basic <- severe_day_tamb_first[cols]
+severe_day_tamb_all <- severe_day_tamb[cols]
+severe_day_tamb <- severe_day_tamb[cols_severe]
+
+severe_night_tamb <- tamb_severe_night[,!(names(tamb_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Tamborlane") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_tamb_first <- severe_night_tamb[severe_night_tamb$new_count == 0, ]
+severe_night_tamb_first_basic <- severe_night_tamb_first[cols]
+severe_night_tamb_all <- severe_night_tamb[cols]
+severe_night_tamb <- severe_night_tamb[cols_severe]
+
+# WEINSTOCK
+mild_day_wein <- wein_mild_day[,!(names(wein_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Weinstock") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+mild_day_wein_first <- mild_day_wein[mild_day_wein$new_count == 0, ]
+mild_day_wein_first_basic <- mild_day_wein_first[cols]
+mild_day_wein_all <- mild_day_wein[cols]
+
+mild_night_wein <- wein_mild_night[,!(names(wein_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Weinstock") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_wein_first <- mild_night_wein[mild_night_wein$new_count == 0, ]
+mild_night_wein_first_basic <- mild_night_wein_first[cols]
+mild_night_wein_all <- mild_night_wein[cols]
+
+severe_day_wein <- wein_severe_day[,!(names(wein_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Weinstock") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe")
+severe_day_wein_first <- severe_day_wein[severe_day_wein$new_count == 0, ]
+severe_day_wein_first_basic <- severe_day_wein_first[cols]
+severe_day_wein_all <- severe_day_wein[cols]
+severe_day_wein <- severe_day_wein[cols_severe]
+
+severe_night_wein <- wein_severe_night[,!(names(wein_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Weinstock") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_wein_first <- severe_night_wein[severe_night_wein$new_count == 0, ]
+severe_night_wein_first_basic <- severe_night_wein_first[cols]
+severe_night_wein_all <- severe_night_wein[cols]
+severe_night_wein <- severe_night_wein[cols_severe]
+
+# ALEPPO
+mild_day_aleppo <- aleppo_mild_day[,!(names(aleppo_mild_day) %in% dropColumns_mild)] %>%
+  add_column(Population = "Aleppo") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Daytime Mild")
+
+mild_day_aleppo_first <- mild_day_aleppo[mild_day_aleppo$new_count == 0, ]
+mild_day_aleppo_first_basic <- mild_day_aleppo_first[cols]
+mild_day_aleppo_all <- mild_day_aleppo[cols]
+
+mild_night_aleppo <- aleppo_mild_night[,!(names(aleppo_mild_night) %in% dropColumns_mild)] %>%
+  add_column(Population = "Aleppo") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Mild") %>%
+  add_column(tod_severity = "Nighttime Mild")
+
+mild_night_aleppo_first <- mild_night_aleppo[mild_night_aleppo$new_count == 0, ]
+mild_night_aleppo_first_basic <- mild_night_aleppo_first[cols]
+mild_night_aleppo_all <- mild_night_aleppo[cols]
+
+severe_day_aleppo <- aleppo_severe_day[,!(names(aleppo_severe_day) %in% dropColumns_severe)] %>%
+  add_column(Population = "Aleppo") %>%
+  add_column(timeOfDay = "Day") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Daytime Severe") %>%
+  filter(!row_number() %in% c(11339))
+severe_day_aleppo_first <- severe_day_aleppo[severe_day_aleppo$new_count == 0, ]
+severe_day_aleppo_first_basic <- severe_day_aleppo_first[cols]
+severe_day_aleppo_all <- severe_day_aleppo[cols]
+severe_day_aleppo <- severe_day_aleppo[cols_severe]
+
+severe_night_aleppo <- aleppo_severe_night[,!(names(aleppo_severe_night) %in% dropColumns_severe)] %>%
+  add_column(Population = "Aleppo") %>%
+  add_column(timeOfDay = "Night") %>%
+  add_column(severity="Severe") %>%
+  add_column(tod_severity = "Nighttime Severe")
+severe_night_aleppo_first <- severe_night_aleppo[severe_night_aleppo$new_count == 0, ]
+severe_night_aleppo_first_basic <- severe_night_aleppo_first[cols]
+severe_night_aleppo_all <- severe_night_aleppo[cols]
+severe_night_aleppo <- severe_night_aleppo[cols_severe]
+
+# META GROUPINGS
+# first event data
+firstdata_chase <- rbind(mild_day_chase_first_basic, mild_night_chase_first_basic, severe_day_chase_first_basic, severe_night_chase_first_basic)
+firstdata_buck <- rbind(mild_day_buck_first_basic, mild_night_buck_first_basic, severe_day_buck_first_basic, severe_night_buck_first_basic)
+firstdata_tamb <- rbind(mild_day_tamb_first_basic, mild_night_tamb_first_basic, severe_day_tamb_first_basic, severe_night_tamb_first_basic)
+firstdata_wein <- rbind(mild_day_wein_first_basic, mild_night_wein_first_basic, severe_day_wein_first_basic, severe_night_wein_first_basic)
+firstdata_aleppo <- rbind(mild_day_aleppo_first_basic, mild_night_aleppo_first_basic, severe_day_aleppo_first_basic, severe_night_aleppo_first_basic)
+
+firstdata_buck_v_chase <- rbind(firstdata_buck, firstdata_chase)
+firstdata_buck_v_tamb <- rbind(firstdata_buck, firstdata_tamb)
+firstdata_buck_v_wein <- rbind(firstdata_buck, firstdata_wein)
+firstdata_buck_v_aleppo <- rbind(firstdata_buck, firstdata_aleppo)
+
+firstdata_chase_v_tamb <- rbind(firstdata_chase, firstdata_tamb)
+firstdata_chase_v_wein <- rbind(firstdata_chase, firstdata_wein)
+firstdata_chase_v_aleppo <- rbind(firstdata_chase, firstdata_aleppo)
+
+firstdata_tamb_v_wein <- rbind(firstdata_tamb, firstdata_wein)
+firstdata_tamb_v_aleppo <- rbind(firstdata_tamb, firstdata_aleppo)
+
+firstdata_wein_v_aleppo <- rbind(firstdata_wein, firstdata_aleppo)
+
+# all data
+alldata_chase <- rbind(mild_day_chase_all, mild_night_chase_all, severe_day_chase_all, severe_night_chase_all)
+alldata_buck <- rbind(mild_day_buck_all, mild_night_buck_all, severe_day_buck_all, severe_night_buck_all)
+alldata_tamb <- rbind(mild_day_tamb_all, mild_night_tamb_all, severe_day_tamb_all, severe_night_tamb_all)
+alldata_wein <- rbind(mild_day_wein_all, mild_night_wein_all, severe_day_wein_all, severe_night_wein_all)
+alldata_aleppo <- rbind(mild_day_aleppo_all, mild_night_aleppo_all, severe_day_aleppo_all, severe_night_aleppo_all)
+
+alldata_buck_v_chase <- rbind(alldata_buck, alldata_chase)
+alldata_buck_v_tamb <- rbind(alldata_buck, alldata_tamb)
+alldata_buck_v_wein <- rbind(alldata_buck, alldata_wein)
+alldata_buck_v_aleppo <- rbind(alldata_buck, alldata_aleppo)
+
+alldata_chase_v_tamb <- rbind(alldata_chase, alldata_tamb)
+alldata_chase_v_wein <- rbind(alldata_chase, alldata_wein)
+alldata_chase_v_aleppo <- rbind(alldata_chase, alldata_aleppo)
+
+alldata_tamb_v_wein <- rbind(alldata_tamb, alldata_wein)
+alldata_tamb_v_aleppo <- rbind(alldata_tamb, alldata_aleppo)
+
+alldata_wein_v_aleppo <- rbind(alldata_wein, alldata_aleppo)
+
+# severe data first event
+severedata_first_chase <- rbind(severe_day_chase[severe_day_chase$new_count == 0, ], severe_night_chase[severe_night_chase$new_count == 0, ])
+severedata_first_buck <- rbind(severe_day_buck[severe_day_buck$new_count == 0, ], severe_night_buck[severe_night_buck$new_count == 0, ])
+severedata_first_tamb <- rbind(severe_day_tamb[severe_day_tamb$new_count == 0, ], severe_night_tamb[severe_night_tamb$new_count == 0, ])
+severedata_first_wein <- rbind(severe_day_wein[severe_day_wein$new_count == 0, ], severe_night_wein[severe_night_wein$new_count == 0, ])
+severedata_first_aleppo <- rbind(severe_day_aleppo[severe_day_aleppo$new_count == 0, ], severe_night_aleppo[severe_night_aleppo$new_count == 0, ])
+
+severedata_first_buck_v_chase <- rbind(severedata_first_buck, severedata_first_chase)
+severedata_first_buck_v_tamb <- rbind(severedata_first_buck, severedata_first_tamb)
+severedata_first_buck_v_wein <- rbind(severedata_first_buck, severedata_first_wein)
+severedata_first_buck_v_aleppo <- rbind(severedata_first_buck, severedata_first_aleppo)
+
+severedata_first_chase_v_tamb <- rbind(severedata_first_chase, severedata_first_tamb)
+severedata_first_chase_v_wein <- rbind(severedata_first_chase, severedata_first_wein)
+severedata_first_chase_v_aleppo <- rbind(severedata_first_chase, severedata_first_aleppo)
+
+severedata_first_tamb_v_wein <- rbind(severedata_first_tamb, severedata_first_wein)
+severedata_first_tamb_v_aleppo <- rbind(severedata_first_tamb, severedata_first_aleppo)
+
+severedata_first_wein_v_aleppo <- rbind(severedata_first_wein, severedata_first_aleppo)
+
+# severe data last event
+severedata_notfirst_chase <- rbind(severe_day_chase[severe_day_chase$new_count != 0, ], severe_night_chase[severe_night_chase$new_count != 0, ])
+severedata_notfirst_buck <- rbind(severe_day_buck[severe_day_buck$new_count != 0, ], severe_night_buck[severe_night_buck$new_count != 0, ])
+severedata_notfirst_tamb <- rbind(severe_day_tamb[severe_day_tamb$new_count != 0, ], severe_night_tamb[severe_night_tamb$new_count != 0, ])
+severedata_notfirst_wein <- rbind(severe_day_wein[severe_day_wein$new_count != 0, ], severe_night_wein[severe_night_wein$new_count != 0, ])
+severedata_notfirst_aleppo <- rbind(severe_day_aleppo[severe_day_aleppo$new_count != 0, ], severe_night_aleppo[severe_night_aleppo$new_count != 0, ])
+
+severedata_notfirst_buck_v_chase <- rbind(severedata_notfirst_buck, severedata_notfirst_chase)
+severedata_notfirst_buck_v_tamb <- rbind(severedata_notfirst_buck, severedata_notfirst_tamb)
+severedata_notfirst_buck_v_wein <- rbind(severedata_notfirst_buck, severedata_notfirst_wein)
+severedata_notfirst_buck_v_aleppo <- rbind(severedata_notfirst_buck, severedata_notfirst_aleppo)
+
+severedata_notfirst_chase_v_tamb <- rbind(severedata_notfirst_chase, severedata_notfirst_tamb)
+severedata_notfirst_chase_v_wein <- rbind(severedata_notfirst_chase, severedata_notfirst_wein)
+severedata_notfirst_chase_v_aleppo <- rbind(severedata_notfirst_chase, severedata_notfirst_aleppo)
+
+severedata_notfirst_tamb_v_wein <- rbind(severedata_notfirst_tamb, severedata_notfirst_wein)
+severedata_notfirst_tamb_v_aleppo <- rbind(severedata_notfirst_tamb, severedata_notfirst_aleppo)
+
+severedata_notfirst_wein_v_aleppo <- rbind(severedata_notfirst_wein, severedata_notfirst_aleppo)
+
+```
+
+```{r STAT SIG OF DURATION HYPO FIRST EVENT}
+alldata_buck_v_chase %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_buck_v_tamb %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_buck_v_wein %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_buck_v_aleppo %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_chase_v_tamb %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_chase_v_wein %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_chase_v_aleppo %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_tamb_v_wein %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_tamb_v_aleppo %>% kruskal.test(duration_hypo ~ Population, data = .)
+alldata_wein_v_aleppo %>% kruskal.test(duration_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF DURATION PREHYPO TO HYPO FIRST EVENT}
+firstdata_buck_v_chase %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_buck_v_tamb %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_buck_v_wein %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_buck_v_aleppo %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_chase_v_tamb %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_chase_v_wein %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_chase_v_aleppo %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_tamb_v_wein %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_tamb_v_aleppo %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+firstdata_wein_v_aleppo %>% kruskal.test(duration_prehypo_to_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF FIRST TREATMENT}
+severedata_first_buck_v_chase %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_buck_v_tamb %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_buck_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_buck_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_chase_v_tamb %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_chase_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_chase_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_tamb_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_tamb_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_first_wein_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+```
+
+```{r STAT SIG OF LAST TREATMENT}
+severedata_notfirst_buck_v_chase %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_buck_v_tamb %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_buck_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_buck_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_chase_v_tamb %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_chase_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_chase_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_tamb_v_wein %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_tamb_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+severedata_notfirst_wein_v_aleppo %>% filter(!is.na(duration_treatment_short)) %>% kruskal.test(duration_treatment_short ~ Population, data = .)
+```
+
+```{r STAT SIG OF MILD DURATION BEFORE FIRST SEVERE HYPO EVENT}
+severedata_first_buck_v_chase %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_buck_v_tamb %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_buck_v_wein %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_buck_v_aleppo %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_chase_v_tamb %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_chase_v_wein %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_chase_v_aleppo %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_tamb_v_wein %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_tamb_v_aleppo %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+severedata_first_wein_v_aleppo %>% filter(!is.na(duration_mild_to_severe)) %>% kruskal.test(duration_mild_to_severe ~ Population, data = .)
+```
+
+```{r STAT SIG OF PREHYPO TO FIRST SEVERE HYPO EVENT}
+severedata_first_buck_v_chase %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_buck_v_tamb %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_buck_v_wein %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_buck_v_aleppo %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_chase_v_tamb %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_chase_v_wein %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_chase_v_aleppo %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_tamb_v_wein %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_tamb_v_aleppo %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+severedata_first_wein_v_aleppo %>% filter(!is.na(duration_pre_hypo_to_severe)) %>% kruskal.test(duration_pre_hypo_to_severe ~ Population, data = .)
+```
+
+```{r STAT SIG OF RATE ONSET INTO HYPO}
+firstdata_buck_v_chase %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_buck_v_tamb %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_buck_v_wein %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_buck_v_aleppo %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_chase_v_tamb %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_chase_v_wein %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_chase_v_aleppo %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_tamb_v_wein %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_tamb_v_aleppo %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+firstdata_wein_v_aleppo %>% kruskal.test(rate_onset_into_hypo ~ Population, data = .)
+```
+
+```{r STAT SIG OF MIN BGL}
+alldata_buck_v_chase %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_buck_v_tamb %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_buck_v_wein %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_buck_v_aleppo %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_chase_v_tamb %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_chase_v_wein %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_chase_v_aleppo %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_tamb_v_wein %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_tamb_v_aleppo %>% kruskal.test(minBGL ~ Population, data = .)
+alldata_wein_v_aleppo %>% kruskal.test(minBGL ~ Population, data = .)
+```
+
+```{r}
+alldata_wein_v_aleppo %>% m
+```

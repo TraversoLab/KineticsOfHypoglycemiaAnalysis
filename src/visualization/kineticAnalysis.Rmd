@@ -1,0 +1,3293 @@
+---
+title: "Kinetic Analysis of BGL Data"
+output: html_notebook
+author: "boglin"
+---
+
+```{r}
+
+# includes all required libraries
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(lubridate)
+library(scales)
+library(dplyr)
+library(corrplot)
+library(gridExtra)
+library(cowplot)
+library(lme4)
+library(janitor)
+library(data.table)
+library(stringr)
+library(timetk)
+```
+
+```{r}
+events = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/eventCounts.csv")
+
+num_ppy_all <- events$duration_of_data_collected_year / events$numPatients
+num_ppy_all <- num_ppy_all %>% tail(1)
+
+eventOccurrenceBreakdown <- events %>%
+  select(Parameter, Daytime.mild.hypo.parent.events, Daytime.severe.hypo.parent.events, Night.time.mild.hypo.parent.events, Night.time.severe.hypo.parent.events) %>%
+  slice(1:2)
+
+initialVsFollowOnEvents <- events %>%
+  select(Parameter, all.parent.events, all.follow.on.sub.events) %>%
+  slice(1:2)
+
+occurrenceHypoBreakdown <- events %>%
+  select(Parameter, Daytime.mild.hypo.parent.events, Daytime.severe.hypo.parent.events, Night.time.mild.hypo.parent.events, Night.time.severe.hypo.parent.events, Daytime.mild.hypo.followon.subevents, Daytime.severe.hypo.followon.subevents, Night.time.mild.hypo.followon.subevents, Night.time.severe.hypo.followon.subevents) %>%
+  slice(1:2)
+
+initVsFollowupBreakdown <- events %>%
+  select(Parameter, X0_subevent, X1_subevent, X2_subevent, X3_subevent, X4_subevent, X5_subevent, X5.subevent, numPatients, duration_of_data_collected_year, patient_years) %>%
+  slice(1:2)
+```
+
+```{r plotting out event occurrences by time of day and severity}
+wellCont_occ <- eventOccurrenceBreakdown %>% head(1)
+wellCont_occ <- dcast(melt(wellCont_occ, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "Well-Controlled Diabetes")
+wellCont_occ$condition = "Well-Controlled Diabetes"
+wellCont_occ$perc = 100*(wellCont_occ$value/sum(wellCont_occ$value)) %>% round(digit=4)
+wellCont_occ$label = paste(sprintf("%0.1f%%", wellCont_occ$perc), '\n', wellCont_occ$value)
+
+genPop_occ <- eventOccurrenceBreakdown %>% slice(2)
+genPop_occ <- dcast(melt(genPop_occ, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "General Population")
+genPop_occ$condition = "General Population"
+genPop_occ$perc = 100*(genPop_occ$value/sum(genPop_occ$value)) %>% round(digit=4)
+genPop_occ$label = paste(sprintf("%0.1f%%", genPop_occ$perc), '\n', genPop_occ$value)
+
+df_occ <- rbind(wellCont_occ, genPop_occ)
+df_occ$condition <- factor(df_occ$condition)
+df_occ$variable <- factor(df_occ$variable)
+
+eventOccurrencePlot <- ggplot(data = df_occ, aes(x="", y=perc, fill=variable)) + 
+  # geom_bar(width = 1, stat = "identity", position = "fill") + 
+  geom_col(color='white', size = 0.2) +
+  geom_text(size = 2,
+            aes(x=1.2, label = label), 
+            position = position_stack(vjust = 0.5),
+            hjust = 0.5,
+            show.legend = FALSE,
+            label.size = NA) +
+  guides(fill = guide_legend(title = "Time and Severity of Hypoglycemia")) +
+  coord_polar(theta="y") + 
+  facet_grid(.~ condition) + 
+  theme_void() + 
+  theme(text = element_text(size = 10))
+
+eventOccurrencePlot + scale_fill_manual(values=c("#FFC438", "#F57D3D", "#4E9BD2", "#72319C")) +
+  ggtitle("Composition of Complete Events")
+
+```
+
+```{r plotting out event counts by parent events vs follow-up events}
+wellCont_pvi <- initialVsFollowOnEvents %>% head(1)
+wellCont_pvi <- dcast(melt(wellCont_pvi, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "Well-Controlled Diabetes")
+wellCont_pvi$condition = "Well-Controlled Diabetes"
+wellCont_pvi$perc = 100*(wellCont_pvi$value/sum(wellCont_pvi$value)) %>% round(digit=4)
+wellCont_pvi$label = paste(sprintf("%0.1f%%", wellCont_pvi$perc), '\n', wellCont_pvi$value)
+
+genPop_pvi <- initialVsFollowOnEvents %>% slice(2)
+genPop_pvi <- dcast(melt(genPop_pvi, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "General Population")
+genPop_pvi$condition = "General Population"
+genPop_pvi$perc = 100*(genPop_pvi$value/sum(genPop_pvi$value)) %>% round(digit=4)
+genPop_pvi$label = paste(sprintf("%0.1f%%", genPop_pvi$perc), '\n', genPop_pvi$value)
+
+df_pvi <- rbind(wellCont_pvi, genPop_pvi)
+df_pvi$condition <- factor(df_pvi$condition)
+df_pvi$variable <- factor(df_pvi$variable)
+
+initVsFollowOnEventPlot <- ggplot(data = df_pvi, aes(x="", y=perc, fill=variable)) + 
+  # geom_bar(width = 1, stat = "identity", position = "fill") + 
+  geom_col(color='white', size = 0.2) +
+  geom_text(size = 2,
+            aes(x=1.2, label = label), 
+            position = position_stack(vjust = 0.5),
+            hjust = 0.5,
+            show.legend = FALSE,
+            label.size = NA) +
+  guides(fill = guide_legend(title = "Time and Severity of Hypoglycemia")) +
+  coord_polar(theta="y") + 
+  facet_grid(.~ condition) + 
+  theme_void() + 
+  theme(text = element_text(size = 10))
+
+initVsFollowOnEventPlot + scale_fill_manual(values=c("#4E9BD2", "#F57D3D"))
+
+```
+
+```{r plotting out event counts by parent events vs follow-up events including time of day and severity (barchart)}
+wellCont_bar <- occurrenceHypoBreakdown %>% head(1)
+wellCont_bar <- dcast(melt(wellCont_bar, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "Well-Controlled Diabetes")
+wellCont_bar$condition = "Well-Controlled Diabetes"
+wellCont_bar$perc = 100*(wellCont_bar$value/sum(wellCont_bar$value)) %>% round(digit=4)
+wellCont_bar$label = paste(sprintf("%0.1f%%", wellCont_bar$perc), '\n', wellCont_bar$value)
+
+genPop_bar <- occurrenceHypoBreakdown %>% slice(2)
+genPop_bar <- dcast(melt(genPop_bar, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "General Population")
+genPop_bar$condition = "General Population"
+genPop_bar$perc = 100*(genPop_bar$value/sum(genPop_bar$value)) %>% round(digit=4)
+genPop_bar$label = paste(sprintf("%0.1f%%", genPop_bar$perc), '\n', genPop_bar$value)
+
+df_bar <- rbind(wellCont_bar, genPop_bar)
+df_bar$condition <- factor(df_bar$condition)
+df_bar$variable <- factor(df_bar$variable)
+```
+
+```{r}
+df_bar <- read.csv("../KineticsOfHypoglycemiaAnalysis/plots/df_bar.csv")
+
+occurrenceOfHypoStackedBarplot <- ggplot(data = df_bar, aes(x=tod_severity, y = value, fill=event_type), colour="white") +
+  geom_bar(colour="white", stat="identity") +
+  # geom_col(color='white', size = 0.2) +
+  # geom_text(size = 2,
+  #           aes(x=1.2, label = label),
+  #           # position = position_stack(vjust = 0.5),
+  #           # hjust = 0.5,
+  #           show.legend = FALSE,
+  #           label.size = NA) +
+  guides(fill = guide_legend(title = "Event Type")) +
+  geom_bar(position="stack", stat="identity") +
+  # theme_void() +
+  theme(text = element_text(size = 10))
+
+occurrenceOfHypoStackedBarplot + scale_fill_manual(values=c("#F57D3D", "#4E9BD2"))
+
+```
+```{r}
+num_ppy <- initVsFollowupBreakdown$patient_years
+num_ppy_wc <- num_ppy %>% head(1)
+num_ppy_gp <- num_ppy %>% tail(1)
+
+wellCont_ivfbar <- initVsFollowupBreakdown %>% head(1)
+wellCont_ivfbar <- dcast(melt(wellCont_ivfbar, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "Well-Controlled Diabetes") %>% slice(1:6)
+wellCont_ivfbar$condition = "Well-Controlled Diabetes"
+wellCont_ivfbar$perc = 100*(wellCont_ivfbar$value/sum(wellCont_ivfbar$value)) %>% round(digit=4)
+wellCont_ivfbar$label = paste(sprintf("%0.1f%%", wellCont_ivfbar$perc), '\n', wellCont_ivfbar$value)
+wellCont_ivfbar$ppy_value = wellCont_ivfbar$value / num_ppy_wc
+
+genPop_ivfbar <- initVsFollowupBreakdown %>% slice(2)
+genPop_ivfbar <- dcast(melt(genPop_ivfbar, id.vars = "Parameter"), variable ~ Parameter) %>%
+  rename("value" = "General Population") %>% slice(1:6)
+genPop_ivfbar$condition = "General Population"
+genPop_ivfbar$perc = 100*(genPop_ivfbar$value/sum(genPop_ivfbar$value)) %>% round(digit=4)
+genPop_ivfbar$label = paste(sprintf("%0.1f%%", genPop_ivfbar$perc), '\n', genPop_ivfbar$value)
+genPop_ivfbar$ppy_value = genPop_ivfbar$value / num_ppy_gp
+
+df_ivfbar <- rbind(wellCont_ivfbar, genPop_ivfbar)
+df_ivfbar$condition <- factor(df_ivfbar$condition)
+df_ivfbar$variable <- factor(df_ivfbar$variable)
+
+initVsFollowOnEventPlotBar <- ggplot(df_ivfbar, aes(fill=condition, y=ppy_value, x=variable)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  ggtitle("Distribution of Complete Parent Events by Number of Follow−On Events") +
+    xlab("Number of Follow-On Events") +
+    ylab("Events Per Patient Year")
+
+initVsFollowOnEventPlotBar + scale_fill_manual(values=c("#F57D3D", "#4E9BD2"))
+```
+```{r num hypo by start time}
+# have to import new df from python with the breakdown by time of day
+severityByHour <- read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/severity_by_hour.csv")
+
+numHypoByHour <- ggplot(severityByHour, aes(fill=Severity, y=Counts_PPY, x=Hour)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  ggtitle("Quantities of Hypoglycemia Per Patient Year against Time of Day and Severity") +
+    xlab("Hour of Day") +
+    ylab("Quantities Per Patient Year")
+
+numHypoByHour + 
+  scale_fill_manual(values=c("#F57D3D", "#4E9BD2")) +
+  scale_x_continuous(limits = c(-1,24), breaks=c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23))
+
+
+```
+```{r durations with statsig}
+# have to import new df from python with the breakdown by time of day
+durationsWithStatSig <- read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/data_for_r/durations.csv") %>%
+  mutate(Durations = hms(Durations)) %>%
+  mutate(Variance = hms(Variance)) %>%
+  mutate(minVariance = Durations - Variance) %>%
+  mutate(maxVariance = Durations + Variance)
+
+
+hypoDurationsWithStatSig <- durationsWithStatSig %>%
+  slice(1:8)
+
+prehypoDurationsWithStatSig <- durationsWithStatSig %>%
+  slice(9:17)
+
+treatmentDurationsWithStatSig <- durationsWithStatSig %>%
+  slice(17:25)
+
+hypoDurationPlot <- ggplot(hypoDurationsWithStatSig, aes(fill=Population, y=as.numeric(Durations, unit="mins"), x=TOD_Severity, ymin = as.numeric(minVariance, unit="mins"), ymax = as.numeric(maxVariance, unit="mins"))) +
+  geom_bar(position = "dodge", stat = "identity") +
+  geom_errorbar(position=position_dodge(width=0.9), colour="black", size=0.3, width=0.2) +
+  ggtitle("Duration of Hypoglycemia against Time of Day and Severity") +
+    xlab("Time of Day and Severity") +
+    ylab("Duration (mins)")
+
+hypoDurationPlot +
+  scale_fill_manual(values=c("#F57D3D", "#4E9BD2"))
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/hypo_durations_tod_severity.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+prehypoDurationPlot <- ggplot(prehypoDurationsWithStatSig, aes(fill=Population, y=as.numeric(Durations, unit="mins"), x=TOD_Severity, ymin = as.numeric(minVariance, unit="mins"), ymax = as.numeric(maxVariance, unit="mins"))) +
+  geom_bar(position = "dodge", stat = "identity") +
+  geom_errorbar(position=position_dodge(width=0.9), colour="black", size=0.3, width=0.2) +
+  ggtitle("Duration of Pre-Hypoglycemia against Time of Day and Severity") +
+    xlab("Time of Day and Severity") +
+    ylab("Duration (mins)")
+
+prehypoDurationPlot +
+  scale_fill_manual(values=c("#F57D3D", "#4E9BD2"))
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/prehypo_durations_tod_severity.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+treatmentDurationPlot <- ggplot(treatmentDurationsWithStatSig, aes(fill=Population, y=as.numeric(Durations, unit="mins"), x=TOD_Severity, ymin = as.numeric(minVariance, unit="mins"), ymax = as.numeric(maxVariance, unit="mins"))) +
+  geom_bar(position = "dodge", stat = "identity") +
+  geom_errorbar(position=position_dodge(width=0.9), colour="black", size=0.3, width=0.2) +
+  ggtitle("Duration of Time to Treatment against Time of Day and Severity") +
+    xlab("Time of Day and Severity") +
+    ylab("Duration (mins)")
+
+treatmentDurationPlot +
+  scale_fill_manual(values=c("#F57D3D", "#4E9BD2"))
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/treatment_durations_tod_severity.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+```{r}
+# importing aleppo raw data and filtering out events that don't correspond to duration events
+
+data_aleppo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/visualizationData_aleppo_withmetadata.csv")
+data_aleppo <- data_aleppo %>% mutate(time = ymd_hms(time)) %>%
+  # mutate(data_aleppo, t = as.POSIXct(t, format = "%H:%M:%S")) %>%
+  mutate(t = hms(t)) %>%
+  mutate(time = ymd_hms(time)) %>%
+  select(-c("X", "timeOfDay")) %>%
+  mutate(event_id = event_id + 500000)
+
+data_aleppo <- data_aleppo[with(data_aleppo, order(data_aleppo$time)), ]
+
+# importing aleppo duration data and filtering out events that don't correspond to raw data
+te_aleppo = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/cleanedData/data_aleppo_cleaned.csv")
+te_aleppo <- te_aleppo %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  select(-c("X", "tod")) %>%
+  mutate(event_id = event_id + 500000)
+
+
+te_aleppo <- te_aleppo[with(te_aleppo, order(te_aleppo$id, te_aleppo$start_time_pre_hypo)), ] %>%
+  mutate(count = seq.int(nrow(te_aleppo)) - 1)
+
+te_aleppo['treatment_20_1'] <- as.numeric(as.character(NA))
+te_aleppo['treatment_20_gl_1'] <- as.numeric(as.character(NA))
+te_aleppo['initial_rise_2'] <- as.numeric(as.character(NA))
+te_aleppo['initial_rise_gl_2'] <- as.numeric(as.character(NA))
+
+aleppo <- merge(data_aleppo, te_aleppo, by=c("event_id", "new_count"))
+
+aleppo <- aleppo %>%
+  mutate(phaseLabel = case_when(ymd_hms(time) >= ymd_hms(start_time_pre_hypo) & ymd_hms(time) < ymd_hms(start_time_hypo) ~ "pre-hypo",
+                                ymd_hms(time) >= ymd_hms(start_time_hypo) & ymd_hms(time) <= ymd_hms(end_hypo_time) ~ "hypo"))
+```
+
+
+```{r}
+# importing tamborlane raw data and filtering out events that don't correspond to duration events
+
+data_tamborlane = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/visualizationData_tamborlane_withmetadata.csv")
+data_tamborlane <- data_tamborlane %>% mutate(time = ymd_hms(time)) %>%
+  mutate(t = hms(t)) %>%
+  mutate(time = ymd_hms(time)) %>%
+  select(-c("dataCount", "studyNum", "timeOfDay")) %>%
+  mutate(event_id = event_id + 400000)
+
+data_tamborlane <- data_tamborlane[with(data_tamborlane, order(data_tamborlane$time)), ]
+
+# importing tamborlane duration data and filtering out events that don't correspond to raw data
+te_tamb = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/cleanedData/data_tamborlane_cleaned.csv")
+te_tamb <- te_tamb %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  mutate(treatment_20_1 = ymd_hms(treatment_20_1)) %>%
+  select(-c("X", "tod")) %>%
+  mutate(event_id = event_id + 400000)
+
+te_tamb <- te_tamb[with(te_tamb, order(te_tamb$id, te_tamb$start_time_pre_hypo)), ] %>%
+  mutate(count = seq.int(nrow(te_tamb)) - 1)
+
+tamborlane <- merge(data_tamborlane, te_tamb, by=c("event_id", "new_count"))
+
+tamborlane <- tamborlane %>%
+  mutate(phaseLabel = case_when(ymd_hms(time) >= ymd_hms(start_time_pre_hypo) & ymd_hms(time) < ymd_hms(start_time_hypo) ~ "pre-hypo",
+                                ymd_hms(time) >= ymd_hms(start_time_hypo) & ymd_hms(time) <= ymd_hms(end_hypo_time) ~ "hypo"))
+```
+
+```{r}
+# Import raw data files for chase, buckingham, and weinstock
+data_chase = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/visualizationData_chase_withmetadata.csv")
+data_chase <- data_chase %>% mutate(time = ymd_hms(time)) %>%
+  mutate(t = hms(t)) %>%
+  mutate(time = ymd_hms(time)) %>%
+  select(-c("dataCount", "studyNum")) %>%
+  mutate(event_id = event_id + 100000)
+
+data_chase <- data_chase[with(data_chase, order(data_chase$id, data_chase$time)), ]
+
+# Import duration (time events) data for chase, buckingham, and weinstock
+te_chase = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/cleanedData/data_chase_cleaned.csv")
+te_chase <- te_chase %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0))%>%
+  select(-c("X", "tod")) %>%
+  mutate(event_id = event_id + 100000)
+
+te_chase <- te_chase[with(te_chase, order(te_chase$id, te_chase$start_time_pre_hypo)), ] %>%
+  mutate(count = seq.int(nrow(te_chase)) - 1)
+
+# merging the raw data datafrae and the durations dataframes
+chase <- merge(data_chase, te_chase, by=c("event_id", "new_count"))
+# converting treatment and initial rise data to numeric so we can use it
+te_chase['treatment_20_1'] <- as.numeric(as.character(NA))
+te_chase['treatment_20_gl_1'] <- as.numeric(as.character(NA))
+te_chase['initial_rise_gl_2'] <- as.numeric(as.character(NA))
+te_chase['initial_rise_2'] <- as.numeric(as.character(NA))
+
+# creating the column "phaseLabel," which divides a patient's individual event data into hypo and pre-hypo
+chase <- chase %>%
+  mutate(phaseLabel = case_when(ymd_hms(time) >= ymd_hms(start_time_pre_hypo) & ymd_hms(time) < ymd_hms(start_time_hypo) ~ "pre-hypo",
+                                ymd_hms(time) >= ymd_hms(start_time_hypo) & ymd_hms(time) <= ymd_hms(end_hypo_time) ~ "hypo"))
+
+```
+
+```{r}
+data_buckingham = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/visualizationData_buckingham_withmetadata.csv")
+data_buckingham <- data_buckingham %>% mutate(time = ymd_hms(time)) %>%
+  mutate(t = hms(t)) %>%
+  mutate(time = ymd_hms(time)) %>%
+  select(-c("dataCount", "studyNum", "timeOfDay")) %>%
+  mutate(event_id = event_id + 200000)
+
+data_buckingham <- data_buckingham[with(data_buckingham, order(data_buckingham$id, data_buckingham$time)), ]
+
+te_buck = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/cleanedData/data_buckingham_cleaned.csv")
+te_buck <- te_buck %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  select(-c("X", "tod")) %>%
+  mutate(event_id = event_id + 200000)
+
+te_buck <- te_buck[with(te_buck, order(te_buck$id, te_buck$start_time_pre_hypo)), ] %>%
+  mutate(count = seq.int(nrow(te_buck)) - 1)
+  
+buckingham <- merge(data_buckingham, te_buck, by=c("event_id", "new_count"))
+
+te_buck['treatment_20_1'] <- as.numeric(as.character(NA))
+te_buck['treatment_20_gl_1'] <- as.numeric(as.character(NA))
+te_buck['initial_rise_2'] <- as.numeric(as.character(NA))
+te_buck['initial_rise_gl_2'] <- as.numeric(as.character(NA))
+
+buckingham <- buckingham %>%
+  mutate(phaseLabel = case_when(ymd_hms(time) >= ymd_hms(start_time_pre_hypo) & ymd_hms(time) < ymd_hms(start_time_hypo) ~ "pre-hypo",
+                                ymd_hms(time) >= ymd_hms(start_time_hypo) & ymd_hms(time) <= ymd_hms(end_hypo_time) ~ "hypo"))
+
+```
+
+
+
+```{r}
+data_weinstock = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/visData/visualizationData_weinstock_withmetadata.csv")
+data_weinstock <- data_weinstock %>% mutate(time = ymd_hms(time)) %>%
+  mutate(t = hms(t)) %>%
+  mutate(time = ymd_hms(time)) %>%
+  select(-c("dataCount", "studyNum", "timeOfDay")) %>%
+  mutate(event_id = event_id + 300000)
+
+data_weinstock <- data_weinstock[with(data_weinstock, order(data_weinstock$id, data_weinstock$time)), ]
+
+te_weinstock = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/cleanedData/data_weinstock_cleaned.csv")
+te_weinstock <- te_weinstock %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  mutate(treatment_20_1 = ymd_hms(treatment_20_1))%>%
+  select(-c("X", "tod")) %>%
+  mutate(event_id = event_id + 300000)
+
+te_weinstock <- te_weinstock[with(te_weinstock, order(te_weinstock$id, te_weinstock$start_time_pre_hypo)), ] %>%
+  mutate(count = seq.int(nrow(te_weinstock)) - 1)
+
+te_weinstock['initial_rise_2'] <- as.numeric(as.character(NA))
+te_weinstock['initial_rise_gl_2'] <- as.numeric(as.character(NA))
+
+weinstock <- merge(data_weinstock, te_weinstock, by=c("event_id", "new_count"))
+
+weinstock <- weinstock %>%
+  mutate(phaseLabel = case_when(ymd_hms(time) >= ymd_hms(start_time_pre_hypo) & ymd_hms(time) < ymd_hms(start_time_hypo) ~ "pre-hypo",
+                                ymd_hms(time) >= ymd_hms(start_time_hypo) & ymd_hms(time) <= ymd_hms(end_hypo_time) ~ "hypo"))
+# weinstock <- weinstock %>% drop_na(phaseLabel)
+
+```
+
+
+```{r}
+# ensuring that all dataframes for each dataset have the same columns
+vars <- c("id.x", "time", "event_id", "new_count", "gl", "minBGL", "global_min_time", "start_time_pre_hypo", "start_time_hypo", "last_full_rise", "end_hypo_time","end_hypo_time_gl", "start_time_severe", "initial_rise_0", "initial_rise_1", "treatment_20_0", "timeOfDay", "ages", "phaseLabel")
+
+chase <- chase[vars]
+buckingham <- buckingham[vars]
+buckingham <- buckingham[seq(1, nrow(buckingham), 5), ]
+tamborlane <- tamborlane %>% arrange(id.x, ymd_hms(tamborlane$time))
+tamborlane <- tamborlane[vars]
+aleppo <- aleppo %>% arrange(id.x, ymd_hms(aleppo$time))
+aleppo <- aleppo[vars]
+weinstock <- weinstock[vars]
+
+```
+
+```{r}
+# combines all the dataframes into a massive dataframe
+allData <- rbind(chase, weinstock, buckingham, tamborlane, aleppo)
+general_population <- rbind(chase, weinstock, buckingham, tamborlane)
+```
+
+
+```{r}
+# writes all the data out to a CSV for a python script (hypoglycemic_analysis > src > features > fixTime.py). This script will take an individual's hypo event and add a new column, normTime, that sets the start of hypo at time 0 and counts how long a person has been in hypo
+# write.csv(allData, "../KineticsOfHypoglycemiaAnalysis/data/processed/allData.csv")
+write.csv(general_population, "../KineticsOfHypoglycemiaAnalysis/data/processed/general_population.csv")
+write.csv(aleppo, "../KineticsOfHypoglycemiaAnalysis/data/processed/aleppo.csv")
+```
+
+```{r}
+# ensuring that all dataframes for each dataset have the same columns
+vars_te <- c("id", "event_id", "new_count", "start_time_pre_hypo", "start_time_hypo", "end_hypo_time", "start_time_severe", "initial_rise_0", "treatment_20_0", "timeOfDay")
+
+te_chase_barplots <- te_chase[vars_te]
+te_buck_barplots <- te_buck[vars_te]
+te_tamb_barplots <- te_tamb[vars_te]
+te_aleppo_barplots <- te_aleppo[vars_te]
+te_weinstock_barplots <- te_weinstock[vars_te]
+
+te_data <-rbind(te_aleppo_barplots, te_weinstock_barplots, te_chase_barplots, te_tamb_barplots, te_buck_barplots)
+```
+
+```{r}
+# remove all mild data from the dataset to create a severe data only dataset
+data_severe_te <- te_data[!is.na(te_data$start_time_severe),]
+
+# remove all severe data from dataset to create a mild only dataset (this is just a non dpyly way to do it)
+data_mild_te <- te_data[is.na(te_data$start_time_severe),]
+
+data_mild_day <- data_mild_te[data_mild_te$new_count == 0, ] %>%
+  filter(timeOfDay == "Diurnal") %>%
+  mutate(duration_pre_hypo = start_time_hypo - start_time_pre_hypo) %>%
+  mutate(duration_hypo = end_hypo_time - start_time_hypo) %>%
+  mutate(duration_treatment = initial_rise_0 - start_time_hypo) %>%
+  mutate(duration_pre_hypo = as.numeric(duration_pre_hypo, units="secs")) %>%
+  mutate(duration_hypo = as.numeric(duration_hypo, units="secs")) %>%
+  mutate(duration_treatment = as.numeric(duration_treatment, units="secs")) %>%
+  mutate(durationPreHypoMinutes = duration_pre_hypo / 60) %>%
+  mutate(durationHypoMinutes = duration_hypo / 60) %>%
+  mutate(durationTreatmentMinutes = duration_treatment / 60) %>%
+  mutate(density_durationhypo = duration_hypo / max(duration_hypo))
+
+data_mild_day_treatment <- data_mild_day[!is.na(data_mild_day$treatment_20_0),]
+
+data_mild_night <- data_mild_te[data_mild_te$new_count == 0, ] %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  mutate(duration_pre_hypo = start_time_hypo - start_time_pre_hypo) %>%
+  mutate(duration_hypo = end_hypo_time - start_time_hypo) %>%
+  mutate(duration_treatment = initial_rise_0 - start_time_hypo) %>%
+  mutate(duration_pre_hypo = as.numeric(duration_pre_hypo, units="secs")) %>%
+  mutate(duration_hypo = as.numeric(duration_hypo, units="secs")) %>%
+  mutate(duration_treatment = as.numeric(duration_treatment, units="secs")) %>%
+  mutate(durationPreHypoMinutes = duration_pre_hypo / 60) %>%
+  mutate(durationHypoMinutes = duration_hypo / 60) %>%
+  mutate(durationTreatmentMinutes = duration_treatment / 60)
+
+data_mild_night_treatment <- data_mild_night[!is.na(data_mild_night$treatment_20_0),]
+
+data_severe_day <- data_severe_te[data_severe_te$new_count == 0, ] %>%
+  filter(timeOfDay == "Diurnal") %>%
+  mutate(duration_pre_hypo = start_time_hypo - start_time_pre_hypo) %>%
+  mutate(duration_hypo = end_hypo_time - start_time_hypo) %>%
+  mutate(duration_treatment = initial_rise_0 - start_time_hypo) %>%
+  mutate(duration_pre_hypo = as.numeric(duration_pre_hypo, units="secs")) %>%
+  mutate(duration_hypo = as.numeric(duration_hypo, units="secs")) %>%
+  mutate(duration_treatment = as.numeric(duration_treatment, units="secs")) %>%
+  mutate(durationPreHypoMinutes = duration_pre_hypo / 60) %>%
+  mutate(durationHypoMinutes = duration_hypo / 60) %>%
+  mutate(durationTreatmentMinutes = duration_treatment / 60)
+
+data_severe_day_treatment <- data_severe_day[!is.na(data_severe_day$treatment_20_0),]
+
+data_severe_night <- data_severe_te[data_severe_te$new_count == 0, ] %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  mutate(duration_pre_hypo = start_time_hypo - start_time_pre_hypo) %>%
+  mutate(duration_hypo = end_hypo_time - start_time_hypo) %>%
+  mutate(duration_treatment = initial_rise_0 - start_time_hypo) %>%
+  mutate(duration_pre_hypo = as.numeric(duration_pre_hypo, units="secs")) %>%
+  mutate(duration_hypo = as.numeric(duration_hypo, units="secs")) %>%
+  mutate(duration_treatment = as.numeric(duration_treatment, units="secs")) %>%
+  mutate(durationPreHypoMinutes = duration_pre_hypo / 60) %>%
+  mutate(durationHypoMinutes = duration_hypo / 60) %>%
+  mutate(durationTreatmentMinutes = duration_treatment / 60)
+
+data_severe_night_treatment <- data_severe_night[!is.na(data_severe_night$treatment_20_0),]
+
+# quantile(data_mild_day_treatment$durationTreatmentMinutes)
+# quantile(data_mild_night_treatment$durationTreatmentMinutes)
+# quantile(data_severe_day_treatment$durationTreatmentMinutes)
+# quantile(data_severe_night_treatment$durationTreatmentMinutes)
+```
+
+```{r}
+ggplot(data_mild_day, aes(x=durationHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Mild Daytime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .03) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_mild_day.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_mild_night, aes(x=durationHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Mild Nighttime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .03) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_mild_night.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_severe_day, aes(x=durationHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Severe Daytime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .03) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_severe_day.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_severe_night, aes(x=durationHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Severe Nighttime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .03) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_severe_night.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+```{r}
+ggplot(data_mild_day, aes(x=durationPreHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Mild Daytime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .02) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationPreHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_mild_day.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_mild_night, aes(x=durationPreHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Mild Nighttime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .02) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationPreHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_mild_night.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_severe_day, aes(x=durationPreHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Severe Daytime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .02) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationPreHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_severe_day.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_severe_night, aes(x=durationPreHypoMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Events (First) in Severe Nighttime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .02) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationPreHypoMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationPreHypoMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_severe_night.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+```{r}
+ggplot(data_severe_day_treatment, aes(x=durationTreatmentMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Treatment in Severe Daytime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .025) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationTreatmentMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationTreatmentMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationTreatmentMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationTreatment_severe_day.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+
+ggplot(data_severe_night_treatment, aes(x=durationTreatmentMinutes)) +
+  geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   bins=49,
+                   color="white", fill="#F57D3D", boundary=0) +
+  ggtitle("Duration of Treatment in Severe Nighttime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Probability Density") +
+  scale_x_continuous(minor_breaks = seq(0, 600, 30), breaks = seq(0, 600, by=60), limits = c(0, 600)) +
+  ylim(0, .025) +
+  geom_density(alpha=.2, color="dark blue", linetype="dotted", bw=5) + # Overlay with transparent density plot
+  geom_vline(aes(xintercept=mean(durationTreatmentMinutes)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationTreatmentMinutes, probs=.25)), color="dark blue", linetype="dotted", size=.5) +
+  geom_vline(aes(xintercept=quantile(durationTreatmentMinutes, probs=.75)), color="dark blue", linetype="dotted", size=.5)
+
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/durationTreatment_severe_night.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+```{r}
+# ggplot(data_mild_day, aes(x=density_durationhypo)) +
+#   geom_histogram()
+
+ggplot(data_mild_day, aes(x=durationHypoMinutes)) +
+  geom_histogram(color="white", fill="#F57D3D", boundary=0, bins=49, prob=T) +
+  scale_x_continuous(minor_breaks = seq(0, 240, 10), breaks = seq(0, 240, by=10), limits = c(0, 240)) +
+  # ylim(0,1) +
+  ggtitle("Duration of Events (First) in Mild Daytime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+# 
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_mild_day.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+# 
+ggplot(data_mild_night, aes(x=durationHypoMinutes)) + geom_histogram(color="white", fill="#F57D3D", boundary=0, bins=49) +
+  scale_x_continuous(minor_breaks = seq(0, 240, 10), breaks = seq(0, 240, by=10), limits = c(0, 240)) +
+  ylim(0,10000) +
+  ggtitle("Duration of Events (First) in Mild Nighttime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+#
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_mild_night.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_severe_day, aes(x=durationHypoMinutes)) + geom_histogram(color="white", fill="#F57D3D", boundary=0, bins=49) +
+  scale_x_continuous(minor_breaks = seq(0, 240, 10), breaks = seq(0, 240, by=10), limits = c(0, 240)) +
+  ylim(0,10000) +
+  ggtitle("Duration of Events (First) in Severe Daytime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_severe_day.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_severe_night, aes(x=durationHypoMinutes)) + geom_histogram(color="white", fill="#F57D3D", boundary=0, bins=49) +
+  scale_x_continuous(minor_breaks = seq(0, 240, 10), breaks = seq(0, 240, by=10), limits = c(0, 240)) +
+  ylim(0,10000) +
+  ggtitle("Duration of Events (First) in Severe Nighttime Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationHypo_severe_night.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+```
+```{r}
+ggplot(data_mild_day, aes(x=durationPreHypoMinutes)) + 
+  geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,7500) +
+  ggtitle("Duration of Events (First) in Mild Daytime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_mild_day.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_mild_night, aes(x=duration_pre_hypo)) + geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,7500) +
+  ggtitle("Duration of Events (First) in Mild Nighttime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_mild_night.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_severe_day, aes(x=durationPreHypoMinutes)) + geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,7500) +
+  ggtitle("Duration of Events (First) in Severe Daytime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_severe_day.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_severe_night, aes(x=durationPreHypoMinutes)) + geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,7500) +
+  ggtitle("Duration of Events (First) in Severe Nighttime Pre-Hypoglycemia") +
+    xlab("Time (mins) spent in Hypoglycemia") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationPreHypo_severe_night.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+```
+```{r}
+
+ggplot(data_severe_day_treatment, aes(x=durationTreatmentMinutes)) + geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,600) +
+  ggtitle("Duration of Events (First) before Treatment in Severe Daytime") +
+    xlab("Time (mins) spent") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationTreatment_severe_day.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+
+ggplot(data_severe_night_treatment, aes(x=durationTreatmentMinutes)) + geom_histogram(color="white", fill="#F57D3D", bins=50) +
+  scale_x_continuous(minor_breaks = seq(0, 270, 10), breaks = seq(0, 270, by=10), limits = c(0, 270)) +
+  ylim(0,600) +
+  ggtitle("Duration of Events (First) before Treatment in Severe Nighttime") +
+    xlab("Time (mins) spent") +
+    ylab("Count")
+
+# ggplot2::ggsave(
+#   "../KineticsOfHypoglycemiaAnalysis/plots/durationTreatment_severe_night.pdf",
+#   dpi = 300,
+#   width = 8,
+#   height = 4
+# )
+```
+
+
+```{r}
+# checks whether there are any nan values in the dataframe
+is.na(allData$phaseLabel)
+```
+
+```{r}
+# imports the dataset with the normTime column
+data = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/timedData.csv")
+data_genpop = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/timedData_genpop.csv")
+data_wellcont = read.csv("../KineticsOfHypoglycemiaAnalysis/data/processed/timedData_aleppo.csv")
+
+# convert string time data to date-time representation
+data <- data %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  mutate(newTime = newTime / 60) %>%
+  select(-c("X", "Unnamed..0")) %>%
+  rename("normTime" = "newTime")
+
+data_gp <- data_genpop %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  mutate(newTime = newTime / 60) %>%
+  select(-c("X", "Unnamed..0")) %>%
+  rename("normTime" = "newTime")
+
+data_wc <- data_wellcont %>% mutate(global_min_time = ymd_hms(global_min_time)) %>%
+  mutate(start_time_pre_hypo = ymd_hms(start_time_pre_hypo)) %>%
+  mutate(start_time_hypo = ymd_hms(start_time_hypo)) %>%
+  mutate(end_hypo_time = ymd_hms(end_hypo_time)) %>%
+  mutate(last_full_rise = ymd_hms(last_full_rise)) %>%
+  mutate(start_time_severe = ymd_hms(start_time_severe)) %>%
+  mutate(initial_rise_0 = ymd_hms(initial_rise_0)) %>%
+  mutate(initial_rise_1 = ymd_hms(initial_rise_1)) %>%
+  mutate(treatment_20_0 = ymd_hms(treatment_20_0)) %>%
+  mutate(newTime = newTime / 60) %>%
+  select(-c("X", "Unnamed..0")) %>%
+  rename("normTime" = "newTime")
+
+# converts timeOfDay and phaseLabel to factors
+data <- data %>%
+  mutate(timeOfDay = factor(timeOfDay, levels = unique(timeOfDay))) %>%
+  mutate(phaseLabel = factor(phaseLabel, levels = unique(phaseLabel)))
+
+data_gp <- data_gp %>%
+  mutate(timeOfDay = factor(timeOfDay, levels = unique(timeOfDay))) %>%
+  mutate(phaseLabel = factor(phaseLabel, levels = unique(phaseLabel)))
+
+data_wc <- data_wc %>%
+  mutate(timeOfDay = factor(timeOfDay, levels = unique(timeOfDay))) %>%
+  mutate(phaseLabel = factor(phaseLabel, levels = unique(phaseLabel)))
+
+# count how long a patient's individual hypo event is in hypo
+data <- data %>%
+  group_by(event_id, new_count) %>%
+  mutate(counts = sum(normTime > 0, na.rm=TRUE)) %>%
+  ungroup()
+
+data_gp <- data_gp %>%
+  group_by(event_id, new_count) %>%
+  mutate(counts = sum(normTime > 0, na.rm=TRUE)) %>%
+  ungroup()
+
+data_wc <- data_wc %>%
+  group_by(event_id, new_count) %>%
+  mutate(counts = sum(normTime > 0, na.rm=TRUE)) %>%
+  ungroup()
+
+# remove all mild data from the dataset to create a severe data only dataset
+data_severe <- data[!is.na(data$start_time_severe),]
+data_severe_gp <- data_gp[!is.na(data_gp$start_time_severe),]
+data_severe_wc <- data_wc[!is.na(data_wc$start_time_severe),]
+
+# remove all severe data from dataset to create a mild only dataset (this is just a non dpyly way to do it)
+data_mild <- data[is.na(data$start_time_severe),]
+data_mild_gp <- data_gp[is.na(data_gp$start_time_severe),]
+data_mild_wc <- data_wc[is.na(data_wc$start_time_severe),]
+```
+
+```{r GENERATING WHOLE MILD AND SEVERE DATASETS - AVERAGED DATA (MILD AND SEVERE)}
+# v_mild <- data_mild[data_mild$new_count == 0, ] %>% 
+v_mild <- data_mild %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts) 
+
+model_day_mild <- v_mild %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild$MaxGL_day[model_day_mild$MaxGL_day > 300] <- 300
+model_day_mild$MinGL_day[model_day_mild$MinGL_day > 300] <- 300
+model_day_mild$MeanGL_day[model_day_mild$MeanGL_day > 300] <- 300
+model_day_mild$count_day[model_day_mild$count_day > 300] <- 300
+
+model_night_mild <- v_mild %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = quantile(gl, probs = c(.75)),
+    MinGL_night = quantile(gl, probs = c(.25)),
+    MeanGL_night = mean(gl, na.rm = T),,
+    count_night = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_night_mild$MaxGL_night[model_night_mild$MaxGL_night > 300] <- 300
+model_night_mild$MinGL_night[model_night_mild$MinGL_night > 300] <- 300
+model_night_mild$MeanGL_night[model_night_mild$MeanGL_night > 300] <- 300
+model_night_mild$count_night[model_night_mild$count_night > 300] <- 300
+
+mild <- v_mild %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild <- full_join(model_day_mild, model_night_mild, by='normTime')
+# mild <- full_join(mild, model_night_mild, by='normTime')
+# 
+# v_severe <- data_severe[data_severe$new_count == 0, ] %>% 
+v_severe <- data_severe %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+model_day_severe <- v_severe %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe$MaxGL_day[model_day_severe$MaxGL_day > 300] <- 300
+model_day_severe$MinGL_day[model_day_severe$MinGL_day > 300] <- 300
+model_day_severe$MeanGL_day[model_day_severe$MeanGL_day > 300] <- 300
+model_day_severe$count_day[model_day_severe$count_day > 300] <- 300
+
+model_night_severe <- v_severe %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+summarise(
+  MaxGL_night = quantile(gl, probs = c(.75)),
+  MinGL_night = quantile(gl, probs = c(.25)),
+  MeanGL_night = mean(gl, na.rm = T),
+  count_night = n_distinct(event_id)
+) %>%
+  arrange(normTime)
+
+model_night_severe$MaxGL_night[model_night_severe$MaxGL_night > 300] <- 300
+model_night_severe$MinGL_night[model_night_severe$MinGL_night > 300] <- 300
+model_night_severe$MeanGL_night[model_night_severe$MeanGL_night > 300] <- 300
+model_night_severe$count_night[model_night_severe$count_night > 300] <- 300
+
+severe <- v_severe %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe <- full_join(model_day_severe, model_night_severe, by='normTime')
+# severe <- full_join(severe, model_night_severe, by='normTime')
+```
+
+```{r GENERATING WHOLE MILD AND SEVERE DATASETS - AVERAGED DATA (MILD AND SEVERE) _ GENERAL POPULATION}
+# v_mild <- data_mild[data_mild$new_count == 0, ] %>% 
+v_mild_gp <- data_mild_gp %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts) 
+
+model_day_mild_gp <- v_mild_gp %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild_gp$MaxGL_day[model_day_mild_gp$MaxGL_day > 300] <- 300
+model_day_mild_gp$MinGL_day[model_day_mild_gp$MinGL_day > 300] <- 300
+model_day_mild_gp$MeanGL_day[model_day_mild_gp$MeanGL_day > 300] <- 300
+model_day_mild_gp$count_day[model_day_mild_gp$count_day > 300] <- 300
+
+model_night_mild_gp <- v_mild_gp %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = quantile(gl, probs = c(.75)),
+    MinGL_night = quantile(gl, probs = c(.25)),
+    MeanGL_night = mean(gl, na.rm = T),
+    count_night = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_night_mild_gp$MaxGL_night[model_night_mild_gp$MaxGL_night > 300] <- 300
+model_night_mild_gp$MinGL_night[model_night_mild_gp$MinGL_night > 300] <- 300
+model_night_mild_gp$MeanGL_night[model_night_mild_gp$MeanGL_night > 300] <- 300
+model_night_mild_gp$count_night[model_night_mild_gp$count_night > 300] <- 300
+
+mild_gp <- v_mild_gp %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild_gp <- full_join(model_day_mild_gp, model_night_mild_gp, by='normTime')
+# mild <- full_join(mild, model_night_mild, by='normTime')
+# 
+# v_severe <- data_severe[data_severe$new_count == 0, ] %>% 
+v_severe_gp <- data_severe_gp %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+model_day_severe_gp <- v_severe_gp %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe_gp$MaxGL_day[model_day_severe_gp$MaxGL_day > 300] <- 300
+model_day_severe_gp$MinGL_day[model_day_severe_gp$MinGL_day > 300] <- 300
+model_day_severe_gp$MeanGL_day[model_day_severe_gp$MeanGL_day > 300] <- 300
+model_day_severe_gp$count_day[model_day_severe_gp$count_day > 300] <- 300
+
+model_night_severe_gp <- v_severe_gp %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = quantile(gl, probs = c(.75)),
+    MinGL_night = quantile(gl, probs = c(.25)),
+    MeanGL_night = mean(gl, na.rm = T),
+    count_night = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_night_severe_gp$MaxGL_night[model_night_severe_gp$MaxGL_night > 300] <- 300
+model_night_severe_gp$MinGL_night[model_night_severe_gp$MinGL_night > 300] <- 300
+model_night_severe_gp$MeanGL_night[model_night_severe_gp$MeanGL_night > 300] <- 300
+model_night_severe_gp$count_night[model_night_severe_gp$count_night > 300] <- 300
+
+severe_gp <- v_severe_gp %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe_gp <- full_join(model_day_severe_gp, model_night_severe_gp, by='normTime')
+```
+
+```{r GENERATING WHOLE MILD AND SEVERE DATASETS - AVERAGED DATA (MILD AND SEVERE) _ WELL CONTROLLED POPULATION}
+# v_mild <- data_mild[data_mild$new_count == 0, ] %>% 
+v_mild_wc <- data_mild_wc %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts) 
+
+model_day_mild_wc <- v_mild_wc %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild_wc$MaxGL_day[model_day_mild_wc$MaxGL_day > 300] <- 300
+model_day_mild_wc$MinGL_day[model_day_mild_wc$MinGL_day > 300] <- 300
+model_day_mild_wc$MeanGL_day[model_day_mild_wc$MeanGL_day > 300] <- 300
+model_day_mild_wc$count_day[model_day_mild_wc$count_day > 300] <- 300
+
+model_night_mild_wc <- v_mild_wc %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = quantile(gl, probs = c(.75)),
+    MinGL_night = quantile(gl, probs = c(.25)),
+    MeanGL_night = mean(gl, na.rm = T),
+    count_night = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_night_mild_wc$MaxGL_night[model_night_mild_wc$MaxGL_night > 300] <- 300
+model_night_mild_wc$MinGL_night[model_night_mild_wc$MinGL_night > 300] <- 300
+model_night_mild_wc$MeanGL_night[model_night_mild_wc$MeanGL_night > 300] <- 300
+model_night_mild_wc$count_night[model_night_mild_wc$count_night > 300] <- 300
+
+mild_wc <- v_mild_wc %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild_wc <- full_join(model_day_mild_wc, model_night_mild_wc, by='normTime')
+# mild <- full_join(mild, model_night_mild, by='normTime')
+# 
+# v_severe <- data_severe[data_severe$new_count == 0, ] %>% 
+v_severe_wc <- data_severe_wc %>%
+  select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+
+model_day_severe_wc <- v_severe_wc %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = quantile(gl, probs = c(.75)),
+    MinGL_day = quantile(gl, probs = c(.25)),
+    MeanGL_day = mean(gl, na.rm = T),
+    count_day = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe_wc$MaxGL_day[model_day_severe_wc$MaxGL_day > 300] <- 300
+model_day_severe_wc$MinGL_day[model_day_severe_wc$MinGL_day > 300] <- 300
+model_day_severe_wc$MeanGL_day[model_day_severe_wc$MeanGL_day > 300] <- 300
+model_day_severe_wc$count_day[model_day_severe_wc$count_day > 300] <- 300
+
+model_night_severe_wc <- v_severe_wc %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = quantile(gl, probs = c(.75)),
+    MinGL_night = quantile(gl, probs = c(.25)),
+    MeanGL_night = mean(gl, na.rm = T),
+    count_night = n_distinct(event_id)
+  ) %>%
+  arrange(normTime)
+
+model_night_severe_wc$MaxGL_night[model_night_severe_wc$MaxGL_night > 300] <- 300
+model_night_severe_wc$MinGL_night[model_night_severe_wc$MinGL_night > 300] <- 300
+model_night_severe_wc$MeanGL_night[model_night_severe_wc$MeanGL_night > 300] <- 300
+model_night_severe_wc$count_night[model_night_severe_wc$count_night > 300] <- 300
+
+severe_wc <- v_severe_wc %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe_wc <- full_join(model_day_severe_wc, model_night_severe_wc, by='normTime')
+```
+
+```{r MIN, MAX, MEAN PLOTS}
+plot_mild <-
+  ggplot(mild, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe <-
+  ggplot(severe, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+```{r}
+plot_mild
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_all.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_all.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+```{r MIN, MAX, MEAN PLOTS _ GP}
+plot_mild_gp <-
+  ggplot(mild_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (General Population)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_gp <-
+  ggplot(severe_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (General Population)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+```{r}
+plot_mild_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_all_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_all_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+
+```{r MIN, MAX, MEAN PLOTS _WC}
+plot_mild_wc <-
+  ggplot(mild_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_wc <-
+  ggplot(severe_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-6, 30, 1), breaks = seq(-6, 30, by=3), limits = c(-6, 30)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+```{r}
+plot_mild_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_all_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_all_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+
+```{r}
+mild_prehypo <- mild[mild$normTime <= 0,]
+mild_hypo <- mild[mild$normTime >= 0,]
+severe_prehypo <- severe[severe$normTime <= 0,]
+severe_hypo <- severe[severe$normTime >= 0,]
+
+mild_prehypo_gp <- mild_gp[mild_gp$normTime <= 0,]
+mild_hypo_gp <- mild_gp[mild_gp$normTime >= 0,]
+severe_prehypo_gp <- severe_gp[severe_gp$normTime <= 0,]
+severe_hypo_gp <- severe_gp[severe_gp$normTime >= 0,]
+
+mild_prehypo_wc <- mild_wc[mild_wc$normTime <= 0,]
+mild_hypo_wc <- mild_wc[mild_wc$normTime >= 0,]
+severe_prehypo_wc <- severe_wc[severe_wc$normTime <= 0,]
+severe_hypo_wc <- severe_wc[severe_wc$normTime >= 0,]
+```
+
+
+```{r MIN, MAX, MEAN PLOTS}
+plot_mild_prehypo <-
+  ggplot(mild_prehypo, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_prehypo, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_prehypo, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_mild_hypo <-
+  ggplot(mild_hypo, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_hypo, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_hypo, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_prehypo <-
+  ggplot(severe_prehypo, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_prehypo, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_prehypo, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_hypo <-
+  ggplot(severe_hypo, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_hypo, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_hypo, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+
+```{r}
+plot_mild_prehypo
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_prehypo.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_mild_hypo
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_hypo.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_prehypo
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_prehypo.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_hypo
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_hypo.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+```{r MIN, MAX, MEAN PLOTS_GP}
+plot_mild_prehypo_gp <-
+  ggplot(mild_prehypo_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_prehypo_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_prehypo_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (General Population)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_mild_hypo_gp <-
+  ggplot(mild_hypo_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_hypo_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_hypo_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (General Population)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_prehypo_gp <-
+  ggplot(severe_prehypo_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_prehypo_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_prehypo_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (General Population)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_hypo_gp <-
+  ggplot(severe_hypo_gp, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_hypo_gp, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_hypo_gp, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (General Population)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+
+```{r}
+plot_mild_prehypo_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_prehypo_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_mild_hypo_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_hypo_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_prehypo_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_prehypo_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_hypo_gp
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_hypo_gp.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+```{r MIN, MAX, MEAN PLOTS _WC}
+plot_mild_prehypo_wc <-
+  ggplot(mild_prehypo_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_prehypo_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_prehypo_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_mild_hypo_wc <-
+  ggplot(mild_hypo_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=mild_hypo_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_hypo_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Mild Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_prehypo_wc <-
+  ggplot(severe_prehypo_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_prehypo_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_prehypo_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(-12, 0, 1), breaks = seq(-12, 0, by=3), limits = c(-12, 0)) +
+  ylim(25, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Pre-Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+
+plot_severe_hypo_wc <-
+  ggplot(severe_hypo_wc, aes(normTime, MinGL_day)) +
+  geom_ribbon(data=severe_hypo_wc, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_hypo_wc, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#E58601", "#46ACC8")) +
+  # geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  # geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  geom_point(aes(x=normTime, y=MeanGL_day, alpha=count_day), color="#E58601", size=0.2) +
+  geom_point(aes(x=normTime, y=MeanGL_night, alpha=count_night), color="#46ACC8", size=0.2) +
+  scale_x_continuous(minor_breaks = seq(0, 30, 1), breaks = seq(0, 30, by=3), limits = c(0, 30)) +
+  ylim(25, 100) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_minimal() +
+  # theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time (Severe Data Only) (Well-Controlled)") +
+    xlab("Time (Hours) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)") +
+  theme(legend.position="none")
+```
+
+```{r}
+plot_mild_prehypo_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_prehypo_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_mild_hypo_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_mild_hypo_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_prehypo_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_prehypo_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+plot_severe_hypo_wc
+ggplot2::ggsave(
+  "../KineticsOfHypoglycemiaAnalysis/plots/kinetics_severe_hypo_wc.pdf",
+  dpi = 300,
+  width = 8,
+  height = 4
+)
+```
+
+
+
+```{r PLOTTING WHOLE MILD AND SEVERE / DAY AND NIGHT DATASETS - HISTOGRAMS}
+hist_mild <- v_mild %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,100000) +
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data (Mild Data Only)") +
+    xlab("Time (mins) in Hypoglycemia") +
+    ylab("Frequency")
+
+hist_severe <- v_severe %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,100000) +
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data (Severe Data Only)") +
+    xlab("Time (mins) in Hypoglycemia") +
+    ylab("Frequency")
+
+hist_mild
+hist_severe
+```
+
+
+
+```{r OUTPUT PLOTS}
+plot_mild
+plot_severe
+```
+```{r GENERATING WHOLE MILD AND SEVERE DATASETS - 1HR IN HYPO DATA (MILD AND SEVERE)}
+data_mild_1hr <- data_mild %>%
+  filter(counts >= 12)
+
+data_severe_1hr <- data_severe %>%
+  filter(counts >= 12)
+
+v_mild_1hr <- data_mild_1hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+
+model_day_mild_1hr <- v_mild_1hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild_1hr$MaxGL_day[model_day_mild_1hr$MaxGL_day > 300] <- 300
+
+model_night_mild_1hr <- v_mild_1hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_mild_1hr$MaxGL_night[model_night_mild_1hr$MaxGL_night > 300] <- 300
+
+mild_1hr <- v_mild_1hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild_1hr <- full_join(mild_1hr, model_day_mild_1hr, by='normTime')
+mild_1hr <- full_join(mild_1hr, model_night_mild_1hr, by='normTime')
+
+
+v_severe_1hr <- data_severe_1hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+model_day_severe_1hr <- v_severe_1hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe_1hr$MaxGL_day[model_day_severe_1hr$MaxGL_day > 300] <- 300
+
+model_night_severe_1hr <- v_severe_1hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_severe_1hr$MaxGL_night[model_night_severe_1hr$MaxGL_night > 300] <- 300
+
+severe_1hr <- v_severe_1hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe_1hr <- full_join(severe_1hr, model_day_severe_1hr, by='normTime')
+severe_1hr <- full_join(severe_1hr, model_night_severe_1hr, by='normTime')
+```
+
+```{r MIN, MAX, MEAN PLOTS - 1HR}
+plot_mild_1hr <-
+  ggplot(mild_1hr, aes(normTime, gl)) +
+  geom_ribbon(data=mild_1hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_1hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 1 Hour (Mild Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+
+plot_severe_1hr <-
+  ggplot(severe_1hr, aes(normTime, gl)) +
+  geom_ribbon(data=severe_1hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_1hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 1 Hour (Severe Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+```
+
+```{r}
+plot_mild_1hr
+plot_severe_1hr
+```
+
+
+```{r GENERATING SEVERE AND MILD DATA FOR 2 HR}
+data_mild_2hr <- data_mild %>%
+  filter(counts >= 24)
+
+data_severe_2hr <- data_severe %>%
+  filter(counts >= 24)
+
+v_mild_2hr <- data_mild_2hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+
+model_day_mild_2hr <- v_mild_2hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild_2hr$MaxGL_day[model_day_mild_2hr$MaxGL_day > 300] <- 300
+
+model_night_mild_2hr <- v_mild_2hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_mild_2hr$MaxGL_night[model_night_mild_2hr$MaxGL_night > 300] <- 300
+
+mild_2hr <- v_mild_2hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild_2hr <- full_join(mild_2hr, model_day_mild_2hr, by='normTime')
+mild_2hr <- full_join(mild_2hr, model_night_mild_2hr, by='normTime')
+
+
+v_severe_2hr <- data_severe_2hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+model_day_severe_2hr <- v_severe_2hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe_2hr$MaxGL_day[model_day_severe_2hr$MaxGL_day > 300] <- 300
+
+model_night_severe_2hr <- v_severe_2hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_severe_2hr$MaxGL_night[model_night_severe_2hr$MaxGL_night > 300] <- 300
+
+severe_2hr <- v_severe_2hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe_2hr <- full_join(severe_2hr, model_day_severe_2hr, by='normTime')
+severe_2hr <- full_join(severe_2hr, model_night_severe_2hr, by='normTime')
+```
+
+```{r}
+# all data
+count_severe_day <- data_severe %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_severe_night <- data_severe %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_mild_day <- data_mild %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+count_mild_night <- data_mild %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+# 1 hour
+count_severe_day_1hr <- data_severe_1hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_severe_night_1hr <- data_severe_1hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_mild_day_1hr <- data_mild_1hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+count_mild_night_1hr <- data_mild_1hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+#  2 hour
+count_severe_day_2hr <- data_severe_2hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_severe_night_2hr <- data_severe_2hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_severe = n_distinct(id, count))
+
+count_mild_day_2hr <- data_mild_2hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+count_mild_night_2hr <- data_mild_2hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(id, count) %>%
+  summarise(count_mild = n_distinct(id, count))
+
+# 3 hour
+# count_severe_day_3hr <- data_severe_3hr %>%
+#   filter(timeOfDay == "Diurnal") %>%
+#   group_by(id, count) %>%
+#   summarise(count_severe = n_distinct(id, count))
+# 
+# count_severe_night_3hr <- data_severe_3hr %>%
+#   filter(timeOfDay == "Nocturnal") %>%
+#   group_by(id, count) %>%
+#   summarise(count_severe = n_distinct(id, count))
+# 
+# count_mild_day_3hr <- data_mild_3hr %>%
+#   filter(timeOfDay == "Diurnal") %>%
+#   group_by(id, count) %>%
+#   summarise(count_mild = n_distinct(id, count))
+# 
+# count_mild_night_3hr <- data_mild_3hr %>%
+#   filter(timeOfDay == "Nocturnal") %>%
+#   group_by(id, count) %>%
+#   summarise(count_mild = n_distinct(id, count))
+```
+
+```{r MIN, MAX, MEAN PLOTS - 2HR}
+plot_mild_2hr <-
+  ggplot(mild_2hr, aes(normTime, gl)) +
+  geom_ribbon(data=mild_2hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_2hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 2 Hours (Mild Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+
+plot_severe_2hr <-
+  ggplot(severe_2hr, aes(normTime, gl)) +
+  geom_ribbon(data=severe_2hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_2hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 2 Hours (Severe Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+```
+```{r}
+plot_mild_2hr
+plot_severe_2hr
+```
+
+```{r GENERATING SEVERE AND MILD DATA FOR 3 HR}
+data_mild_3hr <- data_mild %>%
+  filter(counts >= 36)
+
+data_severe_3hr <- data_severe %>%
+  filter(counts >= 36)
+
+v_mild_3hr <- data_mild_3hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+
+model_day_mild_3hr <- v_mild_3hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_mild_3hr$MaxGL_day[model_day_mild_3hr$MaxGL_day > 300] <- 300
+
+model_night_mild_3hr <- v_mild_3hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_mild_3hr$MaxGL_night[model_night_mild_3hr$MaxGL_night > 300] <- 300
+
+mild_3hr <- v_mild_3hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+mild_3hr <- full_join(mild_3hr, model_day_mild_3hr, by='normTime')
+mild_3hr <- full_join(mild_3hr, model_night_mild_3hr, by='normTime')
+
+
+v_severe_3hr <- data_severe_3hr %>% select(id, event_id, new_count, normTime, gl, timeOfDay, counts)
+model_day_severe_3hr <- v_severe_3hr %>%
+  filter(timeOfDay == "Diurnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_day = max(gl, na.rm = T),
+    MinGL_day = min(gl, na.rm = T),
+    MeanGL_day = mean(gl, na.rm = T)
+  ) %>%
+  arrange(normTime)
+
+model_day_severe_3hr$MaxGL_day[model_day_severe_3hr$MaxGL_day > 300] <- 300
+
+model_night_severe_3hr <- v_severe_3hr %>%
+  filter(timeOfDay == "Nocturnal") %>%
+  group_by(normTime) %>%
+  summarise(
+    MaxGL_night = max(gl, na.rm = T),
+    MinGL_night = min(gl, na.rm = T),
+    MeanGL_night = mean(gl, na.rm = T),
+  ) %>%
+  arrange(normTime)
+
+model_night_severe_3hr$MaxGL_night[model_night_severe_3hr$MaxGL_night > 300] <- 300
+
+severe_3hr <- v_severe_3hr %>%
+  distinct(normTime, .keep_all = TRUE) %>%
+  arrange(normTime)
+
+severe_3hr <- full_join(severe_3hr, model_day_severe_3hr, by='normTime')
+severe_3hr <- full_join(severe_3hr, model_night_severe_3hr, by='normTime')
+```
+
+```{r MIN, MAX, MEAN PLOTS - 3HR}
+plot_mild_3hr <-
+  ggplot(mild_3hr, aes(normTime, gl)) +
+  geom_ribbon(data=mild_3hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=mild_3hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 3 Hours (Mild Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+
+plot_severe_3hr <-
+  ggplot(severe_3hr, aes(normTime, gl)) +
+  geom_ribbon(data=severe_3hr, aes(ymin=as.numeric(as.character(MinGL_day)), ymax=as.numeric(as.character(MaxGL_day))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow
+  geom_ribbon(data=severe_3hr, aes(ymin=as.numeric(as.character(MinGL_night)), ymax=as.numeric(as.character(MaxGL_night))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green
+  # scale_color_manual(values = c("#46ACC8", "#E58601")) +
+  geom_line(aes(x=normTime, y=MeanGL_day), color="#E58601") +
+  geom_line(aes(x=normTime, y=MeanGL_night), color="#46ACC8") +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0, 325) +
+  geom_hline(aes(yintercept=70, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-350,70,label = "hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  geom_hline(aes(yintercept=54, show.legend = F), color = "gray20", linetype="dotted", show.legend = F, size=.5) +
+  # geom_text(aes(-300,54,label = "severe hypo", vjust = -.5, show.legend = F), color = "gray57", size=2.5, show.legend = F) +
+  theme_grey(base_size=8) +
+  theme(axis.title.x=element_blank()) +
+  ggtitle("Average Glucose Levels Over Time for Patients in Hypo Longer than 3 Hours (Severe Data Only)") +
+    # xlab("Time (mins) in Hypoglycemia") +
+    ylab("Glucose Levels (mg/dL)")
+```
+
+```{r}
+plot_mild_3hr
+plot_severe_3hr
+```
+
+
+```{r PLOTTING HISTOGRAMS - 1HR and 2 HR}
+hist_mild_1hr <- data_mild_1hr %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,10000) +
+  # scale_y_continuous(trans="log1p") + 
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data for Patients in Hypo Longer than 1 Hour (Mild Data Only)") +
+    xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 1 hour") +
+    ylab("Frequency")
+
+hist_severe_1hr <- data_severe_1hr %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,10000) +
+  # scale_y_continuous(trans="log1p") + 
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data for Patients in Hypo Longer than 1 Hour (Severe Data Only)") +
+    xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 1 hour") +
+    ylab("Frequency")
+
+hist_mild_2hr <- data_mild_2hr %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  # scale_y_continuous(trans="log1p") + 
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,5000) +
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data for Patients in Hypo Longer than 2 Hours (Mild Data Only)") +
+    xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 2 hours") +
+    ylab("Frequency")
+
+hist_severe_2hr <- data_severe_2hr %>%
+  # filter(timeOfDay == "Nocturnal") %>%
+  ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) + 
+  geom_histogram(bins=432, show.legend = F) +
+  scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+  scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+  ylim(0,5000) +
+  theme_grey(base_size=8) +
+  ggtitle("Density of Data for Patients in Hypo Longer than 2 Hours (Severe Data Only)") +
+    xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 2 hours") +
+    ylab("Frequency")
+# 
+# hist_mild_3hr <- data_mild_3hr %>%
+#   ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+#   geom_histogram(bins=432, show.legend = F) +
+#   scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+#   # scale_y_continuous(trans="log1p") + 
+#   scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+#   ylim(0,750) +
+#   theme_grey(base_size=8) +
+#   ggtitle("Density of Data for Patients in Hypo Longer than 3 Hours (Mild Data Only)") +
+#     xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 3 hours") +
+#     ylab("Frequency")
+# 
+# hist_severe_3hr <- data_severe_3hr %>%
+#   ggplot(aes(x=normTime, fill=timeOfDay, alpha = 0.7)) +
+#   geom_histogram(bins=432, show.legend = F) +
+#   scale_fill_manual(values = c("#E58601", "#46ACC8")) +
+#   scale_x_continuous(minor_breaks = seq(-360, 1800, 120), breaks = seq(-360, 1800, by=360), limits = c(-360, 1800)) +
+#   ylim(0,750) +
+#   theme_grey(base_size=8) +
+#   ggtitle("Density of Data for Patients in Hypo Longer than 3 Hours (Severe Data Only)") +
+#     xlab("Time (mins) in Hypoglycemia, when in hypo for longer than 3 hours") +
+#     ylab("Frequency")
+
+hist_mild_1hr
+hist_severe_1hr
+hist_mild_2hr
+hist_severe_2hr
+# hist_mild_3hr
+# hist_severe_3hr
+```
+
+
+```{r MERGE PLOTS}
+plot_grid(plot_mild, hist_mild, ncol=1, rel_heights = c(3,1), align= 'v')
+plot_grid(plot_severe, hist_severe, ncol=1, rel_heights = c(3,1), align= 'v')
+
+plot_grid(plot_mild_1hr, hist_mild_1hr, ncol=1, rel_heights = c(3,1), align= 'v')
+plot_grid(plot_severe_1hr, hist_severe_1hr, ncol=1, rel_heights = c(3,1), align= 'v')
+
+# plot_grid(plot_mild_2hr, hist_mild_2hr, ncol=1, rel_heights = c(3,1), align= 'v')
+# plot_grid(plot_severe_2hr, hist_severe_2hr, ncol=1, rel_heights = c(3,1), align= 'v')
+
+# plot_grid(plot_mild_3hr, hist_mild_3hr, ncol=1, rel_heights = c(3,1), align= 'v')
+# plot_grid(plot_severe_3hr, hist_severe_3hr, ncol=1, rel_heights = c(3,1), align= 'v')
+```
+
+
+
+
+```{r}
+
+daytime_mild <- c(100,5.4, 0.3, 0.06)
+daytime_severe <- c(100,10.90, 2.3, 0.60)
+nighttime_mild <- c(100,3.8, 7.4, 2.2)
+nighttime_severe <- c(100,60.3, 23.3, 11.5)
+
+hypo.data <- t(data.frame(daytime_mild, daytime_severe, nighttime_mild, nighttime_severe))
+colnames(hypo.data) <- c("0 Hours", "1 Hour", "2 Hours", "3 Hours")
+
+# remove everything that is less than zero
+
+v_mild_quant <- v_mild %>%
+  filter(normTime > -1)
+
+v_mild_1hr_quant <- v_mild_1hr %>%
+  filter(normTime > -1)
+
+v_mild_2hr_quant <- v_mild_2hr %>%
+  filter(normTime > -1)
+
+v_severe_quant <- v_severe %>%
+  filter(normTime > -1)
+
+v_severe_1hr_quant <- v_severe_1hr %>%
+  filter(normTime > -1)
+
+v_severe_2hr_quant <- v_severe_2hr %>%
+  filter(normTime > -1)
+
+print("mild")
+quantile(v_mild_quant$normTime, probs = seq(.1, .9, by = .1))
+print("severe")
+quantile(v_severe_quant$normTime, probs = seq(.1, .9, by = .1))
+print("mild 1")
+quantile(v_mild_1hr_quant$normTime, probs = seq(.1, .9, by = .1))
+print("severe 2")
+quantile(v_severe_1hr_quant$normTime, probs = seq(.1, .9, by = .1))
+print("mild 2")
+quantile(v_mild_2hr_quant$normTime, probs = seq(.1, .9, by = .1))
+print("severe 2")
+quantile(v_severe_2hr_quant$normTime, probs = seq(.1, .9, by = .1))
+
+
+mild_data_per <- v_mild_quant
+library(viridis)
+
+mild_data_per <- v_mild_quant %>%
+  select(normTime)
+mild_data_per$label <- "All Mild Data"
+
+mild_data_1hr_per <- v_mild_1hr_quant %>%
+  select(normTime)
+mild_data_1hr_per$label <- "Mild Data After 1 Hour"
+
+mild_data_2hr_per <- v_mild_2hr_quant %>%
+  select(normTime)
+mild_data_2hr_per$label <- "Mild Data After 2 Hours"
+
+severe_data_per <- v_severe_quant %>%
+  select(normTime)
+severe_data_per$label <- "All Severe Data"
+
+severe_data_1hr_per <- v_severe_1hr_quant %>%
+  select(normTime)
+severe_data_1hr_per$label <- "Severe Data After 1 Hour"
+
+severe_data_2hr_per <- v_severe_2hr_quant %>%
+  select(normTime)
+severe_data_2hr_per$label <- "Severe Data After 2 Hours"
+
+percentilePlotsData_mild <- rbind(mild_data_per, mild_data_1hr_per, mild_data_2hr_per)
+percentilePlotsData_severe <- rbind(severe_data_per, severe_data_1hr_per, severe_data_2hr_per)
+
+# plot it on log scale
+
+p <- ggplot(percentilePlotsData_mild, aes(x=label, y=normTime, fill=label, color=label)) +
+  # scale_y_discrete(limits=c(-500, 2000))
+  ylim(-600, 2000) +
+  geom_violin(trim=FALSE) +
+  scale_fill_viridis(discrete=TRUE, alpha=0.3) +
+  scale_color_viridis(discrete=TRUE, alpha=0.3) + theme_minimal() +
+  labs(title="Length of Time within Hypoglycemia",x="Dataset", y = "Length of Time within Hypoglycemia")
+
+p + geom_boxplot(width=0.1, fill="white", outlier.size=0.2) +
+  scale_color_viridis(discrete=TRUE) +
+  theme(legend.position="none")
+
+p <- ggplot(percentilePlotsData_severe, aes(x=label, y=normTime, fill=label, color=label)) +
+  # scale_y_discrete(limits=c(-500, 2000))
+  ylim(-600, 2000) +
+  geom_violin(trim=FALSE) +
+  scale_fill_viridis(discrete=TRUE, alpha=0.3) +
+  scale_color_viridis(discrete=TRUE, alpha=0.3) + theme_minimal() +
+  labs(title="Length of Time within Hypoglycemia",x="Dataset", y = "Length of Time within Hypoglycemia")
+
+p + geom_boxplot(width=0.1, fill="white", outlier.size=0.1) +
+  scale_color_viridis(discrete=TRUE) +
+  theme(legend.position="none")
+
+# ggplot(v_mild, aes(x=normTime, y=))
+# ggplot(percentilePlotsData_mild, aes(x=c(mild_0, mild_1, mild_2), y=c()))
+
+
+```
+
+
+<!-- ```{r SPLITTING OUT BINNED DATA} -->
+<!-- # this is to output the duration data for each bin -->
+<!-- data_timeevents <- data %>% -->
+<!--   select(-time) %>% -->
+<!--   select(-gl) %>% -->
+<!--   select(-normTime) %>% -->
+<!--   select(-phaseLabel) %>% -->
+<!--   distinct(.keep_all = FALSE) -->
+
+<!-- write.csv(data_timeevents, "/Users/ceara/Dropbox (Personal)/Hypoglycemia Analysis/hypoglycemia_analysis/data/processed/binnedData_timeEvents.csv") -->
+
+<!-- data_bin1_mild <- data_mild %>% -->
+<!--   filter(bin == '1') -->
+
+<!-- data_bin2_mild <- data_mild %>% -->
+<!--   filter(bin == '2') -->
+
+<!-- data_bin3_mild <- data_mild %>% -->
+<!--   filter(bin == '3') -->
+
+<!-- data_bin4_mild <- data_mild %>% -->
+<!--   filter(bin == '4') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+
+<!-- data_bin5_mild <- data_mild %>% -->
+<!--   filter(bin == '5') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+
+<!-- data_bin6_mild <- data_mild %>% -->
+<!--   filter(bin == '6') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+
+<!-- data_bin1_severe <- data_severe %>% -->
+<!--   filter(bin == '1') -->
+
+<!-- data_bin2_severe <- data_severe %>% -->
+<!--   filter(bin == '2') -->
+
+<!-- data_bin3_severe <- data_severe %>% -->
+<!--   filter(bin == '3') -->
+
+<!-- data_bin4_severe <- data_severe %>% -->
+<!--   filter(bin == '4') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+
+<!-- data_bin5_severe <- data_severe %>% -->
+<!--   filter(bin == '5') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+
+<!-- data_bin6_severe <- data_severe %>% -->
+<!--   filter(bin == '6') %>% -->
+<!--   filter(id != "6_141" & count != 6396) -->
+<!-- ``` -->
+
+<!-- ```{r CALCULATING MAX MIN VALUES AT EACH TIME POINT - MILD DATA} -->
+<!-- library(wesanderson) -->
+
+<!-- v_bin1_mild <- data_bin1_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin1_mild <- v_bin1_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin1_mild <- v_bin1_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin2_mild <- data_bin2_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin2_mild <- v_bin2_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin2_mild <- v_bin2_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin3_mild <- data_bin3_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin3_mild <- v_bin3_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin3_mild <- v_bin3_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin4_mild <- data_bin4_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin4_mild <- v_bin4_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin4_mild <- v_bin4_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin5_mild <- data_bin5_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin5_mild <- v_bin5_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin5_mild <- v_bin5_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin6_mild <- data_bin6_mild %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin6_mild <- v_bin6_mild %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin6_mild <- v_bin6_mild %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+<!-- ``` -->
+
+
+<!-- ```{r CREATING PLOTS FOR BINNED DATA - MILD ONLY} -->
+<!-- t1 <- -->
+<!--   ggplot(data_bin1_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin1_mild, aes(ymin=as.numeric(as.character(model_day_bin1_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin1_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin1_mild, aes(ymin=as.numeric(as.character(model_night_bin1_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin1_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t2 <- -->
+<!--   ggplot(data_bin2_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin2_mild, aes(ymin=as.numeric(as.character(model_day_bin2_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin2_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin2_mild, aes(ymin=as.numeric(as.character(model_night_bin2_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin2_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t3 <- -->
+<!--   ggplot(data_bin3_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin3_mild, aes(ymin=as.numeric(as.character(model_day_bin3_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin3_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin3_mild, aes(ymin=as.numeric(as.character(model_night_bin3_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin3_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t4 <- -->
+<!--   ggplot(data_bin4_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin4_mild, aes(ymin=as.numeric(as.character(model_day_bin4_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin4_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin4_mild, aes(ymin=as.numeric(as.character(model_night_bin4_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin4_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth(alpha=0.8) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t5 <- -->
+<!--   ggplot(data_bin5_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin5_mild, aes(ymin=as.numeric(as.character(model_day_bin5_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin5_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin5_mild, aes(ymin=as.numeric(as.character(model_night_bin5_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin5_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t6 <- -->
+<!--   ggplot(data_bin6_mild, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin6_mild, aes(ymin=as.numeric(as.character(model_day_bin6_mild$MinGL)), ymax=as.numeric(as.character(model_day_bin6_mild$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin6_mild, aes(ymin=as.numeric(as.character(model_night_bin6_mild$MinGL)), ymax=as.numeric(as.character(model_night_bin6_mild$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth(alpha=0.8) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+<!-- ``` -->
+
+<!-- ```{r PLOTTING BINNED DATA - MILD ONLY} -->
+<!-- t1 -->
+<!-- t2 -->
+<!-- t3 -->
+<!-- t4 -->
+<!-- t5 -->
+<!-- t6 -->
+<!-- ``` -->
+<!-- ```{r CALCULATING MAX MIN VALUES AT EACH TIME POINT - SEVERE DATA} -->
+<!-- library(wesanderson) -->
+
+
+<!-- v_bin1_severe <- data_bin1_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin1_severe <- v_bin1_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin1_severe <- v_bin1_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin2_severe <- data_bin2_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin2_severe <- v_bin2_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin2_severe <- v_bin2_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin3_severe <- data_bin3_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin3_severe <- v_bin3_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin3_severe <- v_bin3_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin4_severe <- data_bin4_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin4_severe <- v_bin4_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin4_severe <- v_bin4_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin5_severe <- data_bin5_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin5_severe <- v_bin5_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin5_severe <- v_bin5_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- v_bin6_severe <- data_bin6_severe %>% select(id, count, normTime, gl, timeOfDay, counts) -->
+<!-- model_day_bin6_severe <- v_bin6_severe %>% -->
+<!--   filter(timeOfDay == "Nocturnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+<!-- model_night_bin6_severe <- v_bin6_severe %>% -->
+<!--   filter(timeOfDay == "Diurnal") %>% -->
+<!--   group_by(normTime) %>% -->
+<!--   mutate( -->
+<!--     MaxGL = max(gl, na.rm = T), -->
+<!--     MinGL = min(gl, na.rm = T) -->
+<!--   ) %>% -->
+<!--   arrange(normTime) -->
+
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r CREATING PLOTS FOR BINNED DATA - SEVERE ONLY} -->
+<!-- t1_severe <- -->
+<!--   ggplot(data_bin1_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin1_severe, aes(ymin=as.numeric(as.character(model_day_bin1_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin1_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin1_severe, aes(ymin=as.numeric(as.character(model_night_bin1_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin1_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels")  -->
+<!--   # theme( -->
+<!--   # panel.background = element_rect(fill = "lightblue", -->
+<!--   #                               colour = "lightblue", -->
+<!--   #                               size = 0.5, linetype = "solid"), -->
+<!--   # panel.grid.major = element_line(size = 0.5, linetype = 'solid', -->
+<!--   #                               colour = "white"),  -->
+<!--   # panel.grid.minor = element_line(size = 0.25, linetype = 'solid', -->
+<!--   #                               colour = "white") -->
+<!--   # ) -->
+<!--   # theme_bw() -->
+
+<!-- t2_severe <- -->
+<!--   ggplot(data_bin2_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin2_severe, aes(ymin=as.numeric(as.character(model_day_bin2_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin2_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin2_severe, aes(ymin=as.numeric(as.character(model_night_bin2_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin2_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t3_severe <- -->
+<!--   ggplot(data_bin3_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin3_severe, aes(ymin=as.numeric(as.character(model_day_bin3_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin3_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin3_severe, aes(ymin=as.numeric(as.character(model_night_bin3_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin3_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t4_severe <- -->
+<!--   ggplot(data_bin4_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin4_severe, aes(ymin=as.numeric(as.character(model_day_bin4_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin4_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin4_severe, aes(ymin=as.numeric(as.character(model_night_bin4_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin4_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth(alpha=0.8) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t5_severe <- -->
+<!--   ggplot(data_bin5_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin5_severe, aes(ymin=as.numeric(as.character(model_day_bin5_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin5_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin5_severe, aes(ymin=as.numeric(as.character(model_night_bin5_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin5_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth() + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t6_severe <- -->
+<!--   ggplot(data_bin6_severe, aes(normTime, gl, color=timeOfDay)) + -->
+<!--   geom_ribbon(data=model_day_bin6_severe, aes(ymin=as.numeric(as.character(model_day_bin6_severe$MinGL)), ymax=as.numeric(as.character(model_day_bin6_severe$MaxGL))), alpha=0.15, fill="#E58601", colour=NA) + #blue = yellow -->
+<!--   geom_ribbon(data=model_night_bin6_severe, aes(ymin=as.numeric(as.character(model_night_bin6_severe$MinGL)), ymax=as.numeric(as.character(model_night_bin6_severe$MaxGL))), alpha=0.15, fill="#46ACC8", colour=NA) + #red = green -->
+<!--   scale_color_manual(values = c("#46ACC8", "#E58601")) + -->
+<!--   # geom_point(alpha=0.05, size=0.7) + -->
+<!--   stat_smooth(alpha=0.8) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+<!-- ``` -->
+
+<!-- ```{r PLOTTING BINNED DATA - SEVERE ONLY} -->
+<!-- t1_severe -->
+<!-- t2_severe -->
+<!-- t3_severe -->
+<!-- t4_severe -->
+<!-- t5_severe -->
+<!-- t6_severe -->
+<!-- ``` -->
+
+
+<!-- ```{r PLOTTING AVERAGE PLOTS WITH SCATTER PLOT OF DATA (MILD AND SEVERE)} -->
+<!-- data_bin6_day_mild <- data_bin6_mild %>% -->
+<!--   filter(data_bin6_mild$timeOfDay == "Diurnal") -->
+
+<!-- data_bin6_night_mild <- data_bin6_mild %>% -->
+<!--   filter(data_bin6_mild$timeOfDay == "Nocturnal") -->
+
+<!-- t6_day_mild <- ggplot(data_bin6_day_mild, aes(normTime, gl)) + -->
+<!--   geom_point(color='#46ACC8', alpha=0.05, size=0.7) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t6_night_mild <- ggplot(data_bin6_night_mild, aes(normTime, gl)) + -->
+<!--   geom_point(color='#E58601', alpha=0.05, size=0.7) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- data_bin6_day_severe <- data_bin6_severe %>% -->
+<!--   filter(data_bin6_severe$timeOfDay == "Diurnal") -->
+
+<!-- data_bin6_night_severe <- data_bin6_severe %>% -->
+<!--   filter(data_bin6_severe$timeOfDay == "Nocturnal") -->
+
+<!-- t6_day_severe <- ggplot(data_bin6_day_severe, aes(normTime, gl)) + -->
+<!--   geom_point(color='#46ACC8', alpha=0.05, size=0.7) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+
+<!-- t6_night_severe <- ggplot(data_bin6_night_severe, aes(normTime, gl)) + -->
+<!--   geom_point(color='#E58601', alpha=0.05, size=0.7) + -->
+<!--   scale_x_continuous(minor_breaks = seq(-360, 900, 120), breaks = seq(-360, 900, by=360), limits = c(-360, 900)) + -->
+<!--   ylim(0, 500) + -->
+<!--   geom_hline(aes(yintercept=70, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,70,label = "hypo", vjust = -.5, hjust=-15, show.legend = F), size=3, show.legend = F) + -->
+<!--   geom_hline(aes(yintercept=54, show_guide = F), linetype="dotdash", show_guide = F) + -->
+<!--   geom_text(aes(0,54,label = "severe hypo", vjust = -.5, hjust=-5.4, show.legend = F), size=3, show.legend = F) + -->
+<!--   ggtitle("Average Glucose Levels Over Time") + -->
+<!--     xlab("Time (mins) (where t=0 when GL drops below 70)") + -->
+<!--     ylab("Glucose Levels") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # grid.arrange(t6, -->
+<!-- #              arrangeGrob(t6_day_mild, t6_night_mild, ncol = 2), -->
+<!-- #              nrow = 2) -->
+<!-- #  -->
+<!-- # grid.arrange(t6_severe, -->
+<!-- #              arrangeGrob(t6_day_severe, t6_night_severe, ncol = 2), -->
+<!-- #              nrow = 2) -->
+
+<!-- # grid.arrange(arrangeGrob(t1, -->
+<!-- #              t2, -->
+<!-- #              t3, -->
+<!-- #              t4, -->
+<!-- #              t5, -->
+<!-- #              # widths = unit(0.5, "npc") ,  -->
+<!-- #              # heights=unit(0.5, "npc") ,  -->
+<!-- #              main="Mild Hypoglycemic Events Only", -->
+<!-- #              ncol = 1) -->
+
+<!-- plot_grid(t1, t2, t3, t4, t5, align = "v", nrow = 5) -->
+
+<!-- # grid.arrange(arrangeGrob(t1, t1_severe, ncol = 2), -->
+<!-- #              arrangeGrob(t2, t2_severe, ncol = 2), -->
+<!-- #              arrangeGrob(t3, t3_severe, ncol = 2), -->
+<!-- #              arrangeGrob(t4, t4_severe, ncol = 2), -->
+<!-- #              arrangeGrob(t5, t5_severe, ncol = 2), -->
+<!-- #              nrow = 5, -->
+<!-- #              widths = ) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r DYNAMIC TIME WARPING} -->
+<!-- library(dtwclust) -->
+<!-- library(gplots) -->
+
+<!-- set.seed(42) -->
+<!-- rows_to_plot = data %>% group_by(count) %>% group_keys() %>% slice_sample(n = 20) -->
+
+<!-- # newData <- data[c("gl", "normTime", "count", "id")] %>% -->
+<!-- #   group_by(id, count) %>% -->
+<!-- #   mutate(unique_id = cur_group_id()) %>% -->
+<!-- #   ungroup() -->
+
+
+<!-- newData <- data %>% -->
+<!--   filter(phaseLabel == "hypo") -->
+<!-- newData <- data[c("gl", "normTime", "count", "id")] -->
+
+<!-- newData <- newData %>% pivot_wider(id_cols = normTime, names_from = c("count", "id"), values_from = gl, values_fn = list(type = list)) %>% unnest(-normTime) -->
+
+<!-- newData <- newData[order(newData$normTime), ] -->
+
+<!-- # value = normTime, type = gl, name = count -->
+
+<!-- # newData <- data %>% group_by(count) %>% right_join(rows_to_plot, by="count") %>% mutate(count = as_factor(count)) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- newData <- select(newData, -1) -->
+<!-- newData[is.na(newData)] <- 0 -->
+
+<!-- newData2 <- newData[,0:500] -->
+<!-- dtw_dist <- function(x){dist(x, method="DTW")} -->
+
+<!-- # newData2 %>% -->
+<!-- #   as.matrix() %>% -->
+<!-- #   gplots::heatmap.2 ( -->
+<!-- #     # dendrogram control -->
+<!-- #     distfun = dtw_dist, -->
+<!-- #     hclustfun = hclust, -->
+<!-- #     dendrogram = "column", -->
+<!-- #     Rowv = FALSE, -->
+<!-- #     labRow = FALSE -->
+<!-- #   ) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- cluster_dtw_h2 <- dtwclust::tsclust(t(newData),  -->
+<!--                                     type = "h",  -->
+<!--                                     k = 8,   -->
+<!--                                     distance = "dtw",  -->
+<!--                                     control = hierarchical_control(method = "complete"), -->
+<!--                                     preproc = NULL,  -->
+<!--                                     args = tsclust_args(dist = list(window.size = 5L))) -->
+
+<!-- hclus <- stats::cutree(cluster_dtw_h2, k = 8) %>% # hclus <- cluster::pam(dist_ts, k = 2)$clustering has a similar result -->
+<!--   as.data.frame(.) %>% -->
+<!--   dplyr::rename(.,cluster_group = .) %>% -->
+<!--   tibble::rownames_to_column("type_col") -->
+
+<!-- hcdata <- ggdendro::dendro_data(cluster_dtw_h2) -->
+<!-- names_order <- hcdata$labels$label -->
+
+<!-- # Use the folloing to remove labels from dendogram so not doubling up - but good for checking hcdata$labels$label <- "" -->
+
+<!-- # p1 <- hcdata %>% -->
+<!-- #   ggdendro::ggdendrogram(., rotate=TRUE, leaf_labels=FALSE) -->
+<!-- #  -->
+<!-- # p2 <- newData2 %>% -->
+<!-- #   dplyr::mutate(index = 1:255) %>% -->
+<!-- #   tidyr::gather(key = type_col,value = value, -index) %>% -->
+<!-- #   dplyr::full_join(., hclus, by = "type_col") %>%  -->
+<!-- #   mutate(type_col = factor(type_col, levels = rev(as.character(names_order)))) %>%  -->
+<!-- #   ggplot(aes(x = index, y = value, colour = cluster_group)) + -->
+<!-- #   geom_line() + -->
+<!-- #   facet_wrap(~type_col, ncol = 1, strip.position="left") +  -->
+<!-- #   guides(color=FALSE) + -->
+<!-- #   theme_bw() +  -->
+<!-- #   theme(strip.background = element_blank(), strip.text = element_blank()) -->
+<!-- #  -->
+<!-- # gp1<-ggplotGrob(p1) -->
+<!-- # gp2<-ggplotGrob(p2)  -->
+<!-- #  -->
+<!-- # grid.arrange(gp2, gp1, ncol=2, widths=c(4,2)) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # Normalized DTW -->
+<!-- ndtw <- function(x, y, ...) { -->
+<!--   dtw(x, y, ..., -->
+<!--       step.pattern = asymmetric, -->
+<!--       distance.only = TRUE)$normalizedDistance -->
+<!-- } -->
+<!-- # Register the distance with proxy -->
+<!-- proxy::pr_DB$set_entry(FUN = ndtw, names = c("nDTW_13"), -->
+<!--                        loop = TRUE, type = "metric", distance = TRUE, -->
+<!--                        description = "Normalized, asymmetric DTW") -->
+<!-- # Partitional clustering -->
+<!-- cluster_dtw_h2 <- dtwclust::tsclust(t(newData2), k = 8L,distance = "nDTW_13") -->
+
+<!-- plot(cluster_dtw_h2) -->
+<!-- ``` -->
